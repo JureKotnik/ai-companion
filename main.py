@@ -14,7 +14,7 @@ LOGIC FLOW:
     1. Load environment variables (API Keys).
     2. Initialize the Memory Vector Database.
     3. Start the interactive chat loop.
-    4. Save conversation context on exit.
+    4. Save conversation context on exit .
 """
 
 import os
