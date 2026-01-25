@@ -2,18 +2,16 @@
 FILE: main.py
 PROJECT: AI Companion
 DESCRIPTION: 
-    The entry point for the application. This file handles the 
-    terminal interface and coordinates the communication flow 
-    between the user and the CompanionBrain.
+    The terminal interface for the AI Companion. Orchestrates 
+    the interaction between the user and the persistent brain module.
 
 DEPENDENCIES:
-    - brain.py (local module)
+    - brain.py
 
 LOGIC FLOW:
-    1. Instantiate the CompanionBrain.
-    2. Enter a loop to receive user commands.
-    3. Relay user input to the brain and display the response.
-    4. Provide a clean exit mechanism.
+    1. Start the companion.
+    2. Retrieve AI responses (automatically saved to disk via brain.py).
+    3. Handle the 'exit' command.
 """
 
 from brain import CompanionBrain
@@ -21,18 +19,18 @@ from brain import CompanionBrain
 def main():
     ai = CompanionBrain()
     
-    print("--- AI Companion Initialized ---")
-    print("(Type 'exit' to stop the session)")
+    print("--- AI Companion Online (Persistent Memory Active) ---")
+    print("(Type 'exit' to quit)")
 
     while True:
         user_input = input("You: ")
         
         if user_input.lower() == "exit":
-            print("Companion: Ending session. Goodbye.")
+            print("Companion: Memory saved. Goodbye!")
             break
             
         response = ai.get_response(user_input)
-        print(f"Companion: {response}\n")
+        print(f"\nCompanion: {response}\n")
 
 if __name__ == "__main__":
     main()
