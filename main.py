@@ -1,26 +1,38 @@
 """
 FILE: main.py
-PROJECT: AI Companion v1.0
+PROJECT: AI Companion
 DESCRIPTION: 
-    This is the primary entry point for the AI Companion. 
-    It handles the main loop, initializes the memory systems, 
-    and manages the connection to the Large Language Model.
+    The entry point for the application. This file handles the 
+    terminal interface and coordinates the communication flow 
+    between the user and the CompanionBrain.
 
 DEPENDENCIES:
-    - langchain
-    - python-dotenv
+    - brain.py (local module)
 
 LOGIC FLOW:
-    1. Load environment variables (API Keys).
-    2. Initialize the Memory Vector Database.
-    3. Start the interactive chat loop.
-    4. Save conversation context on exit .
+    1. Instantiate the CompanionBrain.
+    2. Enter a loop to receive user commands.
+    3. Relay user input to the brain and display the response.
+    4. Provide a clean exit mechanism.
 """
 
-import os
+from brain import CompanionBrain
 
 def main():
-    print("AI Companion Initialized. System: Online.")
+    ai = CompanionBrain()
+    
+    print("--- AI Companion Initialized ---")
+    print("(Type 'exit' to stop the session)")
+
+    while True:
+        user_input = input("You: ")
+        
+        if user_input.lower() == "exit":
+            print("Companion: Ending session. Goodbye.")
+            break
+            
+        response = ai.get_response(user_input)
+        print(f"Companion: {response}\n")
 
 if __name__ == "__main__":
     main()
