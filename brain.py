@@ -2,27 +2,18 @@
 FILE: brain.py
 PROJECT: AI Companion (Local Edition)
 DESCRIPTION: 
-    Core intelligence engine with Automatic Memory Management.
+    Core intelligence engine with Memory Management and Skills.
     
-    Key Features:
-    - Local Llama 3.2 Inference.
-    - Persistent JSON Memory.
-    - Context Summarization: Automatically condenses chat history 
-      when it exceeds a specific threshold to maintain performance.
-
-DEPENDENCIES: ollama, json, os, config
-
-LOGIC FLOW:
-    - get_response: 
-        1. Checks memory length. 
-        2. Triggers _condense_memory if count > LIMIT.
-        3. Generates response.
-        4. Saves data.
+    Updates:
+    - Imports 'skills' module.
+    - Checks for files in user input.
+    - Injects file content into context automatically.
 """
 
 import ollama
 import json
 import os
+from skills import extract_and_read_file
 
 try:
     from config import SYSTEM_PROMPT
@@ -34,9 +25,9 @@ class CompanionBrain:
         self.model_name = model_name
         self.memory_file = memory_file
         self.messages = self._load_memory()
+        
         self.MEMORY_LIMIT = 20
         self.KEEP_RECENT = 10
-
         if self.messages and self.messages[0]['role'] == 'system':
             self.messages[0]['content'] = SYSTEM_PROMPT
 
@@ -54,34 +45,24 @@ class CompanionBrain:
             json.dump(self.messages, f, indent=4)
 
     def _condense_memory(self):
-        """
-        Compresses the middle section of the conversation into a summary
-        to save tokens while retaining context.
-        """
-        print("...Compacting Memory (Optimizing Context)...")
-        
+        print("...Compacting Memory...")
         to_summarize = self.messages[1 : -self.KEEP_RECENT]
-        
-        summary_prompt = f"Summarize the following conversation details concisely: {json.dumps(to_summarize)}"
-        
-        response = ollama.chat(
-            model=self.model_name,
-            messages=[{'role': 'user', 'content': summary_prompt}]
-        )
+        summary_prompt = f"Summarize: {json.dumps(to_summarize)}"
+        response = ollama.chat(model=self.model_name, messages=[{'role': 'user', 'content': summary_prompt}])
         summary_text = response['message']['content']
-        
         new_memory = [self.messages[0]]
-        new_memory.append({
-            "role": "system", 
-            "content": f"[Previous Conversation Summary]: {summary_text}"
-        })
+        new_memory.append({"role": "system", "content": f"Summary: {summary_text}"})
         new_memory.extend(self.messages[-self.KEEP_RECENT:])
-        
         self.messages = new_memory
         self._save_memory()
 
     def get_response(self, user_input):
-        self.messages.append({"role": "user", "content": user_input})
+        file_context = extract_and_read_file(user_input)
+        final_prompt = user_input
+        if file_context:
+            print(f"(Vision System Active: Reading file...)")
+            final_prompt = user_input + file_context
+        self.messages.append({"role": "user", "content": final_prompt})
         
         if len(self.messages) > self.MEMORY_LIMIT:
             self._condense_memory()
