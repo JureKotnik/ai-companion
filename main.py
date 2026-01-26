@@ -23,7 +23,7 @@ def main():
         user_input = input("\nYou (Press Enter to Speak): ")
         
         if user_input.lower() in ["exit", "quit"]:
-            senses.speak("Goodbye, sir.")
+            senses.speak("Byee.")
             break
         
         if user_input.strip() == "":
