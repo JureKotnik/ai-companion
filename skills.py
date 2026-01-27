@@ -3,14 +3,13 @@ FILE: skills.py
 PROJECT: AI Companion
 DESCRIPTION: 
     A collection of 'hard skills' the AI can execute.
-    Currently focuses on File I/O (Vision).
-
-LOGIC:
-    - try_read_file(user_input): Scans the input for words that look like filenames.
-      If a file exists, it returns the content.
+    - File I/O (Vision)
+    - App Launching (Agent)
 """
 
 import os
+import subprocess
+import sys
 
 def extract_and_read_file(user_input):
     """
@@ -20,13 +19,12 @@ def extract_and_read_file(user_input):
     words = user_input.split()
     
     found_file = None
-    content = None
 
     for word in words:
         clean_word = word.strip(".,?!'\"")
         if "." in clean_word and os.path.isfile(clean_word):
             found_file = clean_word
-            break
+            break 
 
     if found_file:
         try:
@@ -40,3 +38,36 @@ def extract_and_read_file(user_input):
             return f"\n[SYSTEM: Attempted to read '{found_file}' but failed: {e}]"
             
     return None
+
+def open_application(app_name):
+    """
+    Attempts to open a Windows application based on a keyword.
+    """
+    app_name = app_name.lower().strip()
+    
+    apps = {
+        "chrome": "start chrome",
+        "google": "start chrome",
+        "notepad": "notepad",
+        "calculator": "calc",
+        "calc": "calc",
+        "explorer": "explorer",
+        "spotify": "start spotify",
+        "code": "code",
+        "vscode": "code",
+        "cmd": "start cmd",
+        "terminal": "start powershell",
+        "brave": "start brave",
+
+    }
+    
+    command = apps.get(app_name)
+    
+    if command:
+        try:
+            subprocess.Popen(command, shell=True)
+            return f"[SYSTEM: Successfully opened {app_name}]"
+        except Exception as e:
+            return f"[SYSTEM: Failed to open {app_name}: {e}]"
+    else:
+        return f"[SYSTEM: I don't know how to open '{app_name}'. Please add it to skills.py]"
