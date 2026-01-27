@@ -1,72 +1,68 @@
 """
 FILE: main.py
-PROJECT: AI Companion (Local Edition)
+PROJECT: AI Companion
 DESCRIPTION: 
-    Main entry point with "Hands-Free" Wake Word detection.
-    
-    LOGIC:
-    1. Loop continuously.
-    2. Listen to audio.
-    3. If text starts with WAKE_WORD ("Astra..."), process it.
-    4. Otherwise, ignore and listen again.
+    Advanced 'Conversation Mode'.
+    - Listens for Wake Word to activate.
+    - Stays active for a set timeout (e.g., 30s) for fluid conversation.
+    - Auto-sleeps after silence.
 """
 
 from brain import CompanionBrain
 from senses import CompanionSenses
-import sys
+import time
 
 try:
     from config import WAKE_WORD, ALWAYS_LISTEN
 except ImportError:
     WAKE_WORD = "astra"
-    ALWAYS_LISTEN = False
+    ALWAYS_LISTEN = True
+
+CONVERSATION_TIMEOUT = 30 
 
 def main():
     ai = CompanionBrain()
     senses = CompanionSenses()
     
+    is_awake = False
+    last_interaction_time = 0
+
     print(f"--- AI Companion Online ({WAKE_WORD.upper()}) ---")
-    print(f"Mode: {'HANDS-FREE' if ALWAYS_LISTEN else 'MANUAL (Press Enter)'}")
-    print("---------------------------------------")
+    print(f"Mode: {'HANDS-FREE' if ALWAYS_LISTEN else 'MANUAL'}")
 
     while True:
-        user_input = ""
-        if ALWAYS_LISTEN:
-            audio_text = senses.listen()
-            
-            if audio_text:
-                lower_text = audio_text.lower()
-                
-                if WAKE_WORD in lower_text:
-                    print(f"[Wake Word Detected]: '{lower_text}'")
-                    cleaned_input = lower_text.replace(WAKE_WORD, "").strip()
-                    
-                    if not cleaned_input:
-                        cleaned_input = "Hello?"
-                        
-                    user_input = cleaned_input
-                else:
-                    print(f"(Ignoring: '{audio_text}')")
+        text = senses.listen()   
+        current_time = time.time() 
+        if is_awake and (current_time - last_interaction_time > CONVERSATION_TIMEOUT):
+            print("\n[Timeout] Conversation ended. Going back to sleep.")
+            senses.speak("I'll be here if you need me.") 
+            is_awake = False
+
+        if not text:
+            continue
+
+        lower_text = text.lower()
+        if not is_awake:
+            if WAKE_WORD in lower_text:
+                print(f"[Waking Up!]")
+                is_awake = True
+                last_interaction_time = current_time
+                clean_input = lower_text.replace(WAKE_WORD, "").strip()
+                if not clean_input:
+                    senses.speak("Yes?")
                     continue
+                response = ai.get_response(clean_input)
+                print(f"Companion: {response}")
+                senses.speak(response)
             else:
-                continue
+                print(f"(Ignored: {text})")
         else:
-            try:
-                user_input = input(f"\nYou ({WAKE_WORD}): ")
-                if user_input.strip() == "":
-                    voice_text = senses.listen()
-                    if voice_text:
-                        user_input = voice_text
-                    else:
-                        continue
-            except KeyboardInterrupt:
-                print("\nShutting down.")
-                break
-        if user_input.lower() in ["exit", "quit", "stop"]:
-            senses.speak("Goodbye.")
-            break
-        if user_input:
-            response = ai.get_response(user_input)
+            if "go to sleep" in lower_text or "stop listening" in lower_text:
+                senses.speak("Standing by.")
+                is_awake = False
+                continue
+            last_interaction_time = current_time
+            response = ai.get_response(text)
             print(f"Companion: {response}")
             senses.speak(response)
 
