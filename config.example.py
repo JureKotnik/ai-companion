@@ -5,3 +5,6 @@ INSTRUCTIONS: Rename this file to config.py and add your custom roles.
 """
 
 SYSTEM_PROMPT = "You are a helpful AI assistant."
+
+WAKE_WORD = "assistant"
+ALWAYS_LISTEN = True
