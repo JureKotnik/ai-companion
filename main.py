@@ -1,9 +1,8 @@
 """
 FILE: main.py
 DESCRIPTION: 
-    Main entry point with Threaded Audio & Streaming.
-    - Fixes 'IndentationError'
-    - Fixes 'Choppy Audio' by buffering full sentences.
+    Main entry point with Smart Timeout.
+    The 'Conversation Timer' is PAUSED while the AI is speaking.
 """
 
 from brain import CompanionBrain
@@ -31,14 +30,25 @@ def main():
 
     while True:
         user_prompt = None
-        
-        text = senses.listen()
         current_time = time.time()
+
+        is_busy = (
+            senses.is_speaking or 
+            not senses.text_queue.empty() or 
+            not senses.audio_queue.empty()
+        )
         
-        if is_awake and (current_time - last_interaction_time > CONVERSATION_TIMEOUT):
-            print("\n[Timeout] Going to sleep.")
+        if is_busy:
+            last_interaction_time = current_time
+
+        if is_awake and not is_busy and (current_time - last_interaction_time > CONVERSATION_TIMEOUT):
+            print("\n[Timeout] Conversation ended. Going to sleep.")
             is_awake = False
 
+        text = senses.listen()
+        
+        current_time = time.time()
+        
         if not text:
             continue 
 
@@ -74,14 +84,16 @@ def main():
             for chunk in ai.stream_response(user_prompt):
                 buffer += chunk
                 print(chunk, end="", flush=True) 
+                
                 if any(punct in chunk for punct in ".?!"):
                     if len(buffer.strip()) > 10: 
                         senses.speak(buffer) 
                         buffer = "" 
+            
             if buffer.strip():
                 senses.speak(buffer)
             
-            print()
+            print() 
 
 if __name__ == "__main__":
     main()
