@@ -1,10 +1,9 @@
 """
 FILE: senses.py
 DESCRIPTION: 
-    Dual-Threaded Audio Pipeline.
-    Thread 1: Synthesizes Audio (Generator).
-    Thread 2: Plays Audio (Player).
-    Result: Zero-latency gaps between sentences.
+    Audio Interface with "Patient Listening" tuning.
+    - pause_threshold: Increased to 1.5s (allows pauses for thought).
+    - phrase_time_limit: Removed (allows long sentences).
 """
 
 import speech_recognition as sr
@@ -24,10 +23,13 @@ class CompanionSenses:
     def __init__(self):
         self.recognizer = sr.Recognizer()
         
+        self.recognizer.pause_threshold = 1.5 
+        
+        self.recognizer.energy_threshold = 300 
+        self.recognizer.dynamic_energy_threshold = True
+        
         self.text_queue = queue.Queue()
-        
         self.audio_queue = queue.Queue()
-        
         self.is_speaking = False
         
         try:
@@ -38,7 +40,6 @@ class CompanionSenses:
             self.kokoro = None
 
         threading.Thread(target=self._synthesis_worker, daemon=True).start()
-        
         threading.Thread(target=self._playback_worker, daemon=True).start()
 
     def _clean_text_for_speech(self, text):
@@ -47,46 +48,30 @@ class CompanionSenses:
         return " ".join(clean_text.split())
 
     def _synthesis_worker(self):
-        """
-        Thread 1: Constantly takes text and converts it to audio arrays.
-        It does NOT wait for audio to finish playing.
-        """
         while True:
             text = self.text_queue.get()
             if text is None: break 
-            
             try:
                 samples, sample_rate = self.kokoro.create(
-                    text, 
-                    voice=VOICE_NAME, 
-                    speed=1.1, 
-                    lang="en-us"
+                    text, voice=VOICE_NAME, speed=1.1, lang="en-us"
                 )
-                
                 silence = np.zeros(int(sample_rate * 0.3), dtype=np.float32)
                 final_audio = np.concatenate((samples, silence))
-                
                 self.audio_queue.put((final_audio, sample_rate))
-                
             except Exception as e:
                 print(f"Synthesis Error: {e}")
             finally:
                 self.text_queue.task_done()
 
     def _playback_worker(self):
-        """
-        Thread 2: Constantly takes ready-made audio and sends it to speakers.
-        """
         while True:
             audio_data = self.audio_queue.get()
             if audio_data is None: break
-            
             samples, sample_rate = audio_data
-            
             try:
                 self.is_speaking = True
                 sd.play(samples, sample_rate)
-                sd.wait() 
+                sd.wait()
             except Exception as e:
                 print(f"Playback Error: {e}")
             finally:
@@ -94,9 +79,7 @@ class CompanionSenses:
                 self.audio_queue.task_done()
 
     def speak(self, text):
-        """Adds text to the synthesis queue."""
         print(f"[Speaking]: {text}")
-        
         spoken_text = self._clean_text_for_speech(text)
         if spoken_text.strip():
             self.text_queue.put(spoken_text)
@@ -108,7 +91,8 @@ class CompanionSenses:
         with sr.Microphone() as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
             try:
-                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=None)
+                
                 text = self.recognizer.recognize_google(audio)
                 print(f"You said: {text}")
                 return text
