@@ -1,7 +1,6 @@
 """
 FILE: brain.py
-PROJECT: AI Companion
-DESCRIPTION: Core intelligence engine with Memory, Vision, and Tools.
+DESCRIPTION: Core intelligence engine with Streaming capabilities.
 """
 
 import ollama
@@ -11,10 +10,8 @@ import re
 from skills import extract_and_read_file, open_application
 
 TOOL_INSTRUCTIONS = """
-You can open applications on the user's PC.
-To open an app, output ONLY this tag: [[OPEN: app_name]]
-Example: To open Notepad, write [[OPEN: notepad]].
-Do not ask for permission, just do it.
+To open an app, output ONLY: [[OPEN: app_name]]
+Do not ask for permission.
 """
 
 try:
@@ -49,8 +46,6 @@ class CompanionBrain:
             json.dump(self.messages, f, indent=4)
 
     def _condense_memory(self):
-        """Compresses old messages to save RAM."""
-        print("...Compacting Memory...")
         if len(self.messages) < (self.KEEP_RECENT + 2):
             return
 
@@ -61,7 +56,7 @@ class CompanionBrain:
             response = ollama.chat(model=self.model_name, messages=[{'role': 'user', 'content': summary_prompt}])
             summary_text = response['message']['content']
             
-            new_memory = [self.messages[0]] 
+            new_memory = [self.messages[0]]
             new_memory.append({"role": "system", "content": f"Summary: {summary_text}"})
             new_memory.extend(self.messages[-self.KEEP_RECENT:])
             
@@ -70,39 +65,40 @@ class CompanionBrain:
         except Exception as e:
             print(f"Summary failed: {e}")
 
-    def get_response(self, user_input):
+    def stream_response(self, user_input):
+        """
+        Yields text chunks as they are generated.
+        """
         file_context = extract_and_read_file(user_input)
-        final_prompt = user_input
-        
-        if file_context:
-            print(f"(Vision System Active: Reading file...)")
-            final_prompt = user_input + file_context
+        final_prompt = user_input + file_context if file_context else user_input
 
         self.messages.append({"role": "user", "content": final_prompt})
         
         if len(self.messages) > self.MEMORY_LIMIT:
             self._condense_memory()
         
+        full_response = ""
+        
         try:
-            response = ollama.chat(model=self.model_name, messages=self.messages)
-            ai_message = response['message']['content']
-            tool_match = re.search(r'\[\[OPEN:\s*(.*?)\]\]', ai_message, re.IGNORECASE)
+            stream = ollama.chat(
+                model=self.model_name, 
+                messages=self.messages, 
+                stream=True
+            )
             
+            for chunk in stream:
+                content = chunk['message']['content']
+                full_response += content
+                yield content
+
+            self.messages.append({"role": "assistant", "content": full_response})
+            self._save_memory()
+            
+            tool_match = re.search(r'\[\[OPEN:\s*(.*?)\]\]', full_response, re.IGNORECASE)
             if tool_match:
                 app_to_open = tool_match.group(1)
-                print(f"(Agent Active: Opening {app_to_open}...)")
-                
-                result = open_application(app_to_open)
-                
-                self.messages.append({"role": "assistant", "content": ai_message})
-                self.messages.append({"role": "system", "content": result})
-                self._save_memory()
-                
-                return f"Opening {app_to_open} for you."
-            
-            self.messages.append({"role": "assistant", "content": ai_message})
-            self._save_memory()
-            return ai_message
+                yield f"\n[Opening {app_to_open}]"
+                open_application(app_to_open)
 
         except Exception as e:
-            return f"Error: {str(e)}"
+            yield f"Error: {str(e)}"
