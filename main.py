@@ -1,6 +1,9 @@
 """
 FILE: main.py
-DESCRIPTION: Main loop updated to handle Streaming TTS.
+DESCRIPTION: 
+    Main entry point with Threaded Audio & Streaming.
+    - Fixes 'IndentationError'
+    - Fixes 'Choppy Audio' by buffering full sentences.
 """
 
 from brain import CompanionBrain
@@ -14,7 +17,7 @@ except ImportError:
     WAKE_WORD = "astra"
     ALWAYS_LISTEN = True
 
-CONVERSATION_TIMEOUT = 120 
+CONVERSATION_TIMEOUT = 30 
 
 def main():
     ai = CompanionBrain()
@@ -24,8 +27,11 @@ def main():
     last_interaction_time = 0
 
     print(f"--- AI Companion Online ({WAKE_WORD.upper()}) ---")
+    print(f"Mode: {'HANDS-FREE' if ALWAYS_LISTEN else 'MANUAL'}")
 
     while True:
+        user_prompt = None
+        
         text = senses.listen()
         current_time = time.time()
         
@@ -34,20 +40,24 @@ def main():
             is_awake = False
 
         if not text:
-            continue
+            continue 
 
         lower_text = text.lower()
-        user_prompt = None
 
         if not is_awake:
             if WAKE_WORD in lower_text:
                 print(f"[Waking Up!]")
                 is_awake = True
                 last_interaction_time = current_time
+                
                 user_prompt = lower_text.replace(WAKE_WORD, "").strip()
+                
                 if not user_prompt:
                     senses.speak("Yes?")
-                    continue
+                    continue 
+            else:
+                pass 
+
         else:
             if "go to sleep" in lower_text:
                 senses.speak("Standing by.")
@@ -63,12 +73,11 @@ def main():
             buffer = ""
             for chunk in ai.stream_response(user_prompt):
                 buffer += chunk
-                print(chunk, end="", flush=True)
-                
-                if any(punct in chunk for punct in ".?!:"):
-                    senses.speak(buffer)
-                    buffer = "" 
-            
+                print(chunk, end="", flush=True) 
+                if any(punct in chunk for punct in ".?!"):
+                    if len(buffer.strip()) > 10: 
+                        senses.speak(buffer) 
+                        buffer = "" 
             if buffer.strip():
                 senses.speak(buffer)
             
