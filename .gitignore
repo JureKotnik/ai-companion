@@ -7,3 +7,4 @@ config.py
 voices.bin
 kokoro-v0_19.onnx
 temp_voice.mp3
+vts_token.txt
