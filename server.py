@@ -1,80 +1,92 @@
-"""
-FILE: server.py
-DESCRIPTION: Flask Server with working EXIT command.
-"""
 from flask import Flask, render_template
-from flask_socketio import SocketIO
-import threading, time, os, sys
+from flask_socketio import SocketIO, emit
+import os
+import time
+import soundfile as sf
+import re
+
+# --- IMPORTS ---
+from kokoro_onnx import Kokoro 
 from brain import CompanionBrain
-from senses import CompanionSenses
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Async_mode='threading' ensures it works well on Windows without extra libraries
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# --- SILENCE THE FAVICON ERROR ---
-@app.route('/favicon.ico')
-def favicon():
-    return "", 204
+# --- SETUP FOLDERS ---
+audio_folder = os.path.join("static", "audio")
+if not os.path.exists(audio_folder):
+    os.makedirs(audio_folder)
 
-class WebSenses(CompanionSenses):
-    def speak(self, text):
-        print(f"[AI]: {text}")
-        spoken_text = self._clean_text_for_speech(text)
-        if not spoken_text.strip(): return
+# --- LOAD COMPONENTS ---
+try:
+    kokoro = Kokoro("kokoro-v0_19.onnx", "voices.bin")
+    print("✔ Kokoro Voice Loaded.")
+except:
+    kokoro = None
+    print("❌ Error: Kokoro files missing.")
 
-        filename = f"speech_{int(time.time()*1000)}.wav"
-        filepath = os.path.join("static", "audio", filename)
-        
-        try:
-            samples, sample_rate = self.kokoro.create(spoken_text, voice="af", speed=1.1, lang="en-us")
-            import soundfile as sf
-            sf.write(filepath, samples, sample_rate)
-            socketio.emit('speak_audio', {'url': f"/static/audio/{filename}"})
-            time.sleep(len(samples) / sample_rate)
-        except Exception as e:
-            print(f"Audio Error: {e}")
-
-def ai_loop():
-    print("--- AI Brain Starting ---")
-    ai = CompanionBrain()
-    senses = WebSenses()
-    
-    time.sleep(1)
-    
-    while True:
-        try:
-            # 1. GET INPUT
-            user_input = input("\nYou (Type here): ")
-
-            # 2. EMERGENCY EXIT - CHECK THIS FIRST
-            if user_input.strip().lower() in ['exit', 'quit', 'stop']:
-                print(">>> SHUTTING DOWN SYSTEM...")
-                os._exit(0) # Force kills python immediately
-
-            # 3. AI PROCESSING
-            if user_input:
-                if "happy" in user_input.lower(): socketio.emit('set_expression', {'mood': 'happy'})
-                elif "angry" in user_input.lower(): socketio.emit('set_expression', {'mood': 'angry'})
-                else: socketio.emit('set_expression', {'mood': 'reset'})
-
-                response_buffer = ""
-                for chunk in ai.stream_response(user_input):
-                    response_buffer += chunk
-                    if any(p in chunk for p in ".?!"):
-                         if len(response_buffer) > 5:
-                            senses.speak(response_buffer)
-                            response_buffer = ""
-                if response_buffer: senses.speak(response_buffer)
-                
-        except Exception as e:
-            print(f"Error: {e}")
+try:
+    brain = CompanionBrain(model_name="llama3.2")
+    print("✔ Brain (Ollama) Loaded.")
+except:
+    brain = None
+    print("❌ Error: Brain could not load.")
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+# --- THE BACKGROUND TASK (This prevents the freeze) ---
+def process_response(user_text):
+    print(f"User: {user_text}")
+
+    # 1. BRAIN THINKING
+    ai_response = ""
+    if brain:
+        for chunk in brain.stream_response(user_text):
+            ai_response += chunk
+    else:
+        ai_response = "I cannot think right now."
+
+    print(f"AI: {ai_response}")
+
+    # 2. CLEAN TEXT
+    spoken_text = re.sub(r'\[\[.*?\]\]', '', ai_response).strip()
+
+    # 3. GENERATE AUDIO
+    filename = f"response_{int(time.time())}.wav"
+    filepath = os.path.join(audio_folder, filename)
+    audio_url = None
+
+    if kokoro and spoken_text:
+        try:
+            samples, sample_rate = kokoro.create(
+                spoken_text, 
+                voice="af", 
+                speed=1.0, 
+                lang="en-us"
+            )
+            sf.write(filepath, samples, sample_rate)
+            audio_url = f"/static/audio/{filename}"
+        except Exception as e:
+            print(f"Audio Error: {e}")
+
+    # 4. SEND TO BROWSER (Using socketio.emit directly)
+    # We use namespace='/' and broadcast=True to ensure it hits the user 
+    # even if their socket ID changed while we were thinking.
+    socketio.emit('speak_audio', {
+        'url': audio_url,
+        'text': ai_response 
+    }, namespace='/')
+
+@socketio.on('user_message')
+def handle_message(data):
+    user_text = data.get('message')
+    # CHANGED: We don't do the work here anymore. 
+    # We start a background task and immediately return, keeping the connection alive.
+    socketio.start_background_task(process_response, user_text)
+
 if __name__ == '__main__':
-    threading.Thread(target=ai_loop, daemon=True).start()
-    print("GO TO: http://127.0.0.1:5000")
-    # allow_unsafe_werkzeug allows us to kill the thread easily
-    socketio.run(app, port=5000, debug=False, allow_unsafe_werkzeug=True)
+    print("--- SERVER ONLINE ---")
+    socketio.run(app, debug=True)

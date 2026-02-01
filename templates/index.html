@@ -1,213 +1,151 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Astra AI</title>
-
-<style>
-body {
-    margin: 0;
-    overflow: hidden;
-    background-color: #2b2b2b;
-}
-#canvas-container {
-    width: 100vw;
-    height: 100vh;
-}
-#loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: white;
-    font-family: sans-serif;
-    font-size: 24px;
-    background: rgba(0,0,0,0.7);
-    padding: 20px;
-    border-radius: 10px;
-}
-</style>
-
-<!-- THREE (legacy, VRM-compatible) -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.142.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.142.0/examples/js/loaders/GLTFLoader.js"></script>
-
-<!-- three-vrm (VRM 0.0) -->
-<script src="https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@0.6.11/lib/three-vrm.js"></script>
-
-<!-- socket.io -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <meta charset="UTF-8">
+    <title>Astra AI</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.142.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.142.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@0.6.11/lib/three-vrm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
 
 <body>
-<div id="loading">Connecting to Neural Network...</div>
-<div id="canvas-container"></div>
+<div id="click-overlay"><div>▶ CLICK TO WAKE UP</div></div>
+    <div id="loading">Loading Model...</div>
+    <div id="canvas-container"></div>
+
+    <div id="response-text"></div>
+
+    <div id="ui-container">
+        <div class="mode-switch">
+            <button class="mode-btn active" onclick="setMode('text')">⌨ TEXT</button>
+            <button class="mode-btn" onclick="setMode('voice')">🎤 VOICE</button>
+        </div>
+        <div id="text-area" class="visible">
+            <input type="text" id="msg-input" placeholder="Type message..." autocomplete="off">
+            <button class="send-btn" onclick="sendText()">SEND</button>
+        </div>
+        <div id="voice-area">
+            <button id="mic-btn">Hold SPACE to Speak</button>
+        </div>
+    </div>
+    </div>
+
+    <script src="/static/movements.js"></script>
 
 <script>
-/* ===============================
-   AUDIO STATE (DECLARE FIRST)
-================================ */
+    let audioContext, analyser, dataArray, isSpeaking = false;
+    let currentVrm = null;
+    const socket = io();
 
-let audioContext = null;
-let analyser = null;
-let dataArray = null;
-let isSpeaking = false;
-
-/* ===============================
-   SOCKET
-================================ */
-
-const socket = io();
-
-/* ===============================
-   THREE SETUP
-================================ */
-
-const container = document.getElementById('canvas-container');
-
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-container.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-
-const light = new THREE.DirectionalLight(0xffffff, 2);
-light.position.set(1, 1, 1);
-scene.add(light);
-
-const camera = new THREE.PerspectiveCamera(
-    30,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    20
-);
-camera.position.set(0, 1.4, 1.5);
-camera.lookAt(0, 1.3, 0);
-
-/* ===============================
-   LOAD VRM
-================================ */
-
-const loader = new THREE.GLTFLoader();
-let currentVrm = null;
-
-loader.load(
-    '/static/astra.vrm',
-    (gltf) => {
-        THREE.VRM.from(gltf).then((vrm) => {
-            vrm.scene.rotation.y = Math.PI;
-            scene.add(vrm.scene);
-            currentVrm = vrm;
-            document.getElementById('loading').style.display = 'none';
-            console.log('VRM loaded ✔');
-        });
-    },
-    undefined,
-    (err) => {
-        console.error(err);
-        document.getElementById('loading').innerText =
-            'VRM LOAD FAILED (check path or VRM version)';
-    }
-);
-
-/* ===============================
-   ANIMATION LOOP
-================================ */
-
-const clock = new THREE.Clock();
-
-function animate() {
-    requestAnimationFrame(animate);
-
-    const delta = clock.getDelta();
-
-    if (currentVrm) {
-        currentVrm.update(delta);
-
-        const chest = currentVrm.humanoid.getBoneNode(
-            THREE.VRMSchema.HumanoidBoneName.Chest
-        );
-        if (chest) {
-            chest.rotation.x = Math.sin(clock.elapsedTime) * 0.03;
-        }
-    }
-
-    updateMouth();
-    renderer.render(scene, camera);
-}
-
-animate();
-
-/* ===============================
-   AUDIO + LIP SYNC
-================================ */
-
-socket.on('speak_audio', (data) => {
-    playAudio(data.url);
-});
-
-function playAudio(url) {
-    if (!audioContext) {
+    document.getElementById('click-overlay').addEventListener('click', function() {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
         dataArray = new Uint8Array(analyser.frequencyBinCount);
+        if(audioContext.state === 'suspended') audioContext.resume();
+        this.style.display = 'none';
+    });
+
+    function setMode(mode) {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector(`.mode-btn[onclick="setMode('${mode}')"]`).classList.add('active');
+        document.getElementById('text-area').className = mode === 'text' ? 'visible' : '';
+        document.getElementById('voice-area').className = mode === 'voice' ? 'visible' : '';
     }
 
-    const audio = new Audio(url);
-    audio.crossOrigin = 'anonymous';
+    function sendText() {
+        const input = document.getElementById('msg-input');
+        if(!input.value) return;
+        socket.emit('user_message', { message: input.value });
+        input.value = '';
+        document.getElementById('response-text').style.display = 'none';
+    }
+    document.getElementById('msg-input').addEventListener('keypress', (e) => { if(e.key==='Enter') sendText(); });
 
-    const source = audioContext.createMediaElementSource(audio);
-    source.connect(analyser);
-    analyser.connect(audioContext.destination);
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(Recognition) {
+        const rec = new Recognition(); rec.lang = 'en-US';
+        const btn = document.getElementById('mic-btn');
+        function startRec() { try { rec.start(); } catch(e){} btn.classList.add('listening'); btn.innerText = "Listening..."; }
+        function stopRec() { rec.stop(); btn.classList.remove('listening'); btn.innerText = "Processing..."; }
+        window.addEventListener('keydown', (e) => { if(e.code === 'Space' && !e.repeat) startRec(); });
+        window.addEventListener('keyup', (e) => { if(e.code === 'Space') stopRec(); });
+        btn.addEventListener('mousedown', startRec);
+        btn.addEventListener('mouseup', stopRec);
+        rec.onresult = (e) => {
+            const txt = e.results[0][0].transcript;
+            btn.innerText = "Sent: " + txt;
+            socket.emit('user_message', { message: txt });
+            setTimeout(() => btn.innerText = "Hold SPACE to Speak", 2000);
+        };
+    }
 
-    audio.play().catch(() => {});
-    isSpeaking = true;
+    socket.on('speak_audio', (data) => {
+        if (data.text) {
+            const t = document.getElementById('response-text');
+            t.innerText = data.text; t.style.display = 'block';
+        }
+        if(data.url) {
+            const audio = new Audio(data.url);
+            audio.crossOrigin = 'anonymous';
+            if(audioContext) {
+                const source = audioContext.createMediaElementSource(audio);
+                source.connect(analyser);
+                analyser.connect(audioContext.destination);
+            }
+            audio.play();
+            isSpeaking = true;
+            audio.onended = () => { isSpeaking = false; animateMouth(currentVrm, null, null, false); };
+        }
+    });
 
-    audio.onended = () => {
-        isSpeaking = false;
-    };
-}
-
-function updateMouth() {
-    if (
-        !isSpeaking ||
-        !analyser ||
-        !dataArray ||
-        !currentVrm ||
-        !currentVrm.blendShapeProxy
-    ) return;
-
-    analyser.getByteFrequencyData(dataArray);
-
-    let sum = 0;
-    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-    const volume = sum / dataArray.length;
-
-    currentVrm.blendShapeProxy.setValue(
-        THREE.VRMSchema.BlendShapePresetName.A,
-        Math.min(1, volume / 25)
-    );
-}
-
-/* ===============================
-   EVENTS
-================================ */
-
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
+    // --- 3D SCENE ---
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-});
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    
+    // --- CAMERA SETUP (Zoomed Out) ---
+    const camera = new THREE.PerspectiveCamera(30, window.innerWidth/window.innerHeight, 0.1, 20);
+    // CHANGED: Y=1.0 (Lower), Z=2.3 (Further back)
+    camera.position.set(0, 1.0, 2.3); 
+    
+    new THREE.GLTFLoader().load('/static/astra.vrm', (gltf) => {
+        THREE.VRM.from(gltf).then(vrm => {
+            vrm.scene.rotation.y = Math.PI;
+            scene.add(vrm.scene);
+            currentVrm = vrm;
+            scene.add(new THREE.DirectionalLight(0xffffff, 2));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            document.getElementById('loading').style.display = 'none';
+        });
+    });
 
-window.addEventListener('click', () => {
-    if (audioContext && audioContext.state === 'suspended') {
-        audioContext.resume();
+    window.addEventListener('resize', () => { 
+        renderer.setSize(window.innerWidth, window.innerHeight); 
+        camera.aspect = window.innerWidth/window.innerHeight; 
+        camera.updateProjectionMatrix(); 
+    });
+
+    const clock = new THREE.Clock();
+    function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        
+        if(currentVrm) {
+            currentVrm.update(delta);
+            const time = clock.elapsedTime;
+            
+            // --- UPDATED CALL: Passing 'isSpeaking' ---
+            animateBody(currentVrm, time, isSpeaking);
+            animateMouth(currentVrm, analyser, dataArray, isSpeaking);
+        }
+        
+        renderer.render(scene, camera);
     }
-});
+    animate();
 </script>
 </body>
 </html>
