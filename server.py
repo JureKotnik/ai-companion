@@ -32,6 +32,10 @@ except:
 def index():
     return render_template('index.html')
 
+@app.route('/2d')
+def live2d_page():
+    return render_template('live2d.html')
+
 def process_response(user_text):
     print(f"User: {user_text}")
 

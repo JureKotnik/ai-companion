@@ -2,21 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Astra AI</title>
+    <title>Astra AI (Live2D)</title>
+    
     <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/three@0.142.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.142.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@0.6.11/lib/three-vrm.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.2/browser/pixi.min.js"></script>
+    <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/cubism4.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
 
 <body>
-    <a href="/2d" class="switch-link">➡ SWITCH TO 2D</a>
+    <canvas id="canvas"></canvas>
+    <a href="/" class="switch-link">➡ SWITCH TO 3D</a>
 
     <div id="click-overlay"><div>▶ CLICK TO WAKE UP</div></div>
-    <div id="loading">Loading Model...</div>
-    <div id="canvas-container"></div>
-
+    <div id="loading" style="z-index: 2000; position: absolute; color: white;">Loading Live2D...</div>
+    
     <div id="response-text"></div>
 
     <div id="ui-container">
@@ -33,12 +35,52 @@
         </div>
     </div>
 
-    <script src="/static/movements.js"></script>
+    <script src="/static/live2d/movements.js"></script>
 
 <script>
+    const MODEL_PATH = '/static/live2d/model/demongirl.model3.json'; 
+    let app, model; 
     let audioContext, analyser, dataArray, isSpeaking = false;
-    let currentVrm = null;
     const socket = io();
+
+    function initPixi() {
+        const canvasElement = document.getElementById('canvas');
+        
+        app = new PIXI.Application({
+            view: canvasElement,
+            resizeTo: window,
+            transparent: true, 
+            autoDensity: true,
+            antialias: true
+        });
+
+        PIXI.live2d.Live2DModel.from(MODEL_PATH).then((loadedModel) => {
+            model = loadedModel;
+            app.stage.addChild(model);
+            
+            model.anchor.set(0.5, 0.5);
+            model.x = window.innerWidth / 2;
+            model.y = window.innerHeight / 2 + 100;
+
+            const scale = (window.innerHeight * 0.4) / model.height;
+            model.scale.set(scale);
+
+            document.getElementById('loading').style.display = 'none';
+            app.ticker.add(animate);
+
+        }).catch(err => {
+            console.error("FAILED TO LOAD MODEL:", err);
+            document.getElementById('loading').innerText = "Load Failed: " + err;
+        });
+    }
+
+    function animate() {
+        if (!model) return;
+        
+        let time = Date.now() / 1000;
+        animateLive2D(model, time, isSpeaking);
+        animateMouthLive2D(model, analyser, dataArray, isSpeaking);
+    }
 
     document.getElementById('click-overlay').addEventListener('click', function() {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -47,6 +89,7 @@
         dataArray = new Uint8Array(analyser.frequencyBinCount);
         if(audioContext.state === 'suspended') audioContext.resume();
         this.style.display = 'none';
+        initPixi(); 
     });
 
     function setMode(mode) {
@@ -79,7 +122,6 @@
             const txt = e.results[0][0].transcript;
             btn.innerText = "Sent: " + txt;
             socket.emit('user_message', { message: txt });
-            setTimeout(() => btn.innerText = "Hold SPACE to Speak", 2000);
         };
     }
 
@@ -98,51 +140,13 @@
             }
             audio.play();
             isSpeaking = true;
-            audio.onended = () => { isSpeaking = false; animateMouth(currentVrm, null, null, false); };
+            audio.onended = () => { isSpeaking = false; };
         }
     });
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('canvas-container').appendChild(renderer.domElement);
-    const scene = new THREE.Scene();
-    
-    const camera = new THREE.PerspectiveCamera(30, window.innerWidth/window.innerHeight, 0.1, 20);
-    camera.position.set(0, 1.0, 2.3); 
-    
-    new THREE.GLTFLoader().load('/static/astra.vrm', (gltf) => {
-        THREE.VRM.from(gltf).then(vrm => {
-            vrm.scene.rotation.y = Math.PI;
-            scene.add(vrm.scene);
-            currentVrm = vrm;
-            scene.add(new THREE.DirectionalLight(0xffffff, 2));
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            document.getElementById('loading').style.display = 'none';
-        });
+    window.addEventListener('resize', () => {
+        if (app) app.renderer.resize(window.innerWidth, window.innerHeight);
     });
-
-    window.addEventListener('resize', () => { 
-        renderer.setSize(window.innerWidth, window.innerHeight); 
-        camera.aspect = window.innerWidth/window.innerHeight; 
-        camera.updateProjectionMatrix(); 
-    });
-
-    const clock = new THREE.Clock();
-    function animate() {
-        requestAnimationFrame(animate);
-        const delta = clock.getDelta();
-        
-        if(currentVrm) {
-            currentVrm.update(delta);
-            const time = clock.elapsedTime;
-            
-            animateBody(currentVrm, time, isSpeaking);
-            animateMouth(currentVrm, analyser, dataArray, isSpeaking);
-        }
-        
-        renderer.render(scene, camera);
-    }
-    animate();
 </script>
 </body>
 </html>
