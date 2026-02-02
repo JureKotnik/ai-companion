@@ -15,30 +15,29 @@ body { margin: 0; overflow: hidden; background-color: #2b2b2b; font-family: sans
     display: flex; flex-direction: column; gap: 10px; align-items: center;
 }
 
-/* RESPONSE TEXT BUBBLE (Moved to Right Side) */
 #response-text {
-    position: fixed; /* Takes it out of the center flow */
-    top: 50%;        /* Position in middle of vertical space */
-    right: 30px;     /* Move to the right side */
-    transform: translateY(-50%); /* Perfectly center vertically */
+    position: fixed;
+    top: 50%;       
+    right: 30px;   
+    transform: translateY(-50%);
     
     color: white; 
     background: rgba(0, 0, 0, 0.7); 
     padding: 20px;
     border-radius: 15px; 
-    border-left: 4px solid #007bff; /* Add a nice blue accent line */
+    border-left: 4px solid #007bff; 
     
     text-align: left; 
-    width: 250px;    /* Give it a fixed width so it wraps text */
-    max-height: 60vh; /* Don't let it get taller than the screen */
-    overflow-y: auto; /* Add scroll if message is very long */
+    width: 250px;   
+    max-height: 60vh; 
+    overflow-y: auto; 
     
     font-size: 16px;
     line-height: 1.5;
     box-shadow: -5px 5px 15px rgba(0,0,0,0.5);
-    backdrop-filter: blur(10px); /* Makes the bubble look high-end */
+    backdrop-filter: blur(10px); 
     
-    display: none; /* Controlled by JS */
+    display: none; 
     z-index: 50;
 }
 

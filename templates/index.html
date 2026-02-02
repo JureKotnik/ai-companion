@@ -101,15 +101,12 @@
         }
     });
 
-    // --- 3D SCENE ---
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.getElementById('canvas-container').appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     
-    // --- CAMERA SETUP (Zoomed Out) ---
     const camera = new THREE.PerspectiveCamera(30, window.innerWidth/window.innerHeight, 0.1, 20);
-    // CHANGED: Y=1.0 (Lower), Z=2.3 (Further back)
     camera.position.set(0, 1.0, 2.3); 
     
     new THREE.GLTFLoader().load('/static/astra.vrm', (gltf) => {
@@ -138,7 +135,6 @@
             currentVrm.update(delta);
             const time = clock.elapsedTime;
             
-            // --- UPDATED CALL: Passing 'isSpeaking' ---
             animateBody(currentVrm, time, isSpeaking);
             animateMouth(currentVrm, analyser, dataArray, isSpeaking);
         }
