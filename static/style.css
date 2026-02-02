@@ -90,3 +90,30 @@ button.send-btn {
     backdrop-filter: blur(5px);
 }
 .switch-link:hover { background: white; color: black; }
+
+        #expression-bar {
+            position: absolute;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .exp-btn {
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            text-transform: uppercase;
+            transition: 0.2s;
+        }
+
+        .exp-btn:hover {
+            background: #007bff;
+            border-color: #007bff;
+        }

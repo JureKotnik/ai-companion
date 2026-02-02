@@ -10,6 +10,7 @@
     <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/cubism4.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+
 </head>
 
 <body>
@@ -20,6 +21,16 @@
     <div id="loading" style="z-index: 2000; position: absolute; color: white;">Loading Live2D...</div>
     
     <div id="response-text"></div>
+
+    <div id="expression-bar">
+        <button class="exp-btn" onclick="triggerExp('Amazed')">Amazed</button>
+        <button class="exp-btn" onclick="triggerExp('Angry')">Angry</button>
+        <button class="exp-btn" onclick="triggerExp('Cry')">Cry</button>
+        <button class="exp-btn" onclick="triggerExp('Love')">Love</button>
+        <button class="exp-btn" onclick="triggerExp('Nervous')">Nervous</button>
+        <button class="exp-btn" onclick="triggerExp('Sleepy')">Sleepy</button>
+        <button class="exp-btn" onclick="triggerExp('Reset')">Reset</button>
+    </div>
 
     <div id="ui-container">
         <div class="mode-switch">
@@ -54,29 +65,41 @@
             antialias: true
         });
 
-        PIXI.live2d.Live2DModel.from(MODEL_PATH).then((loadedModel) => {
+        PIXI.live2d.Live2DModel.from(MODEL_PATH, { autoInteract: false }).then((loadedModel) => {
             model = loadedModel;
             app.stage.addChild(model);
             
             model.anchor.set(0.5, 0.5);
             model.x = window.innerWidth / 2;
             model.y = window.innerHeight / 2 + 100;
-
             const scale = (window.innerHeight * 0.4) / model.height;
             model.scale.set(scale);
 
             document.getElementById('loading').style.display = 'none';
             app.ticker.add(animate);
 
+            console.log("--- MODEL LOADED ---");
+            const refs = model.internalModel.settings.json.FileReferences;
+            console.log("Files found in JSON:", refs);
+            
+            if (refs.Expressions) {
+                console.log("✅ Expressions detected in file list:", refs.Expressions);
+            } else {
+                console.warn("❌ No 'Expressions' found in model3.json! You cannot trigger emotions.");
+            }
+
         }).catch(err => {
             console.error("FAILED TO LOAD MODEL:", err);
             document.getElementById('loading').innerText = "Load Failed: " + err;
         });
     }
+    
+    function triggerExp(name) {
+        if (model) setExpression(model, name);
+    }
 
     function animate() {
         if (!model) return;
-        
         let time = Date.now() / 1000;
         animateLive2D(model, time, isSpeaking);
         animateMouthLive2D(model, analyser, dataArray, isSpeaking);
@@ -143,7 +166,7 @@
             audio.onended = () => { isSpeaking = false; };
         }
     });
-
+    
     window.addEventListener('resize', () => {
         if (app) app.renderer.resize(window.innerWidth, window.innerHeight);
     });
