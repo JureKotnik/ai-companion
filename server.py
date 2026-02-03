@@ -30,11 +30,11 @@ except:
 
 @app.route('/')
 def index():
-    return render_template('index.html')
-
-@app.route('/2d')
-def live2d_page():
     return render_template('live2d.html')
+
+@app.route('/3d')
+def live2d_page():
+    return render_template('index.html')
 
 def process_response(user_text):
     print(f"User: {user_text}")
