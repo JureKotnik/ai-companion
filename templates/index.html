@@ -33,7 +33,7 @@
         </div>
     </div>
 
-    <script src="/static/movements.js"></script>
+    <script src="/static/live3d/movements.js"></script>
 
 <script>
     let audioContext, analyser, dataArray, isSpeaking = false;
@@ -110,7 +110,7 @@
     const camera = new THREE.PerspectiveCamera(30, window.innerWidth/window.innerHeight, 0.1, 20);
     camera.position.set(0, 1.0, 2.3); 
     
-    new THREE.GLTFLoader().load('/static/astra.vrm', (gltf) => {
+    new THREE.GLTFLoader().load('/static/live3d/astra.vrm', (gltf) => {
         THREE.VRM.from(gltf).then(vrm => {
             vrm.scene.rotation.y = Math.PI;
             scene.add(vrm.scene);
