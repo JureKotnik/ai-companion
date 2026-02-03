@@ -70,6 +70,18 @@
     let audioContext, analyser, dataArray, isSpeaking = false;
     const socket = io();
 
+    // --- IDLE TIMER HOOKS ---
+    // These tell movements.js "I am still here!" so she doesn't fall asleep while you type.
+    
+    window.addEventListener('mousedown', () => {
+        if (typeof resetIdleTimer === "function") resetIdleTimer();
+    });
+
+    document.getElementById('msg-input').addEventListener('input', () => {
+        if (typeof resetIdleTimer === "function") resetIdleTimer();
+    });
+
+    // --- PIXI INITIALIZATION ---
     function initPixi() {
         const canvasElement = document.getElementById('canvas');
         
@@ -94,14 +106,15 @@
             document.getElementById('loading').style.display = 'none';
             app.ticker.add(animate);
 
+            // Debug Logs
             console.log("--- MODEL LOADED ---");
             const refs = model.internalModel.settings.json.FileReferences;
             console.log("Files found in JSON:", refs);
             
             if (refs.Expressions) {
-                console.log("✅ Expressions detected in file list:", refs.Expressions);
+                console.log("✅ Expressions detected:", refs.Expressions);
             } else {
-                console.warn("❌ No 'Expressions' found in model3.json! You cannot trigger emotions.");
+                console.warn("❌ No 'Expressions' found in model3.json!");
             }
 
         }).catch(err => {
@@ -121,6 +134,9 @@
         animateMouthLive2D(model, analyser, dataArray, isSpeaking);
     }
 
+    // --- INPUT HANDLERS ---
+    
+    // Wake up on first click
     document.getElementById('click-overlay').addEventListener('click', function() {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
@@ -141,12 +157,17 @@
     function sendText() {
         const input = document.getElementById('msg-input');
         if(!input.value) return;
+
+        // Reset idle timer because we are interacting
+        if (typeof resetIdleTimer === "function") resetIdleTimer();
+
         socket.emit('user_message', { message: input.value });
         input.value = '';
         document.getElementById('response-text').style.display = 'none';
     }
     document.getElementById('msg-input').addEventListener('keypress', (e) => { if(e.key==='Enter') sendText(); });
 
+    // --- VOICE RECOGNITION ---
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if(Recognition) {
         const rec = new Recognition(); rec.lang = 'en-US';
@@ -161,17 +182,20 @@
             const txt = e.results[0][0].transcript;
             btn.innerText = "Sent: " + txt;
             socket.emit('user_message', { message: txt });
+            if (typeof resetIdleTimer === "function") resetIdleTimer();
         };
     }
 
-// --- NEW: PLAYLIST SYSTEM ---
+    // --- PLAYLIST SYSTEM (EMOTION QUEUE) ---
     let audioQueue = [];
     let isPlayingSequence = false;
 
-    // Listen for the new "Sequence" event from server
     socket.on('speak_audio_sequence', (playlist) => {
         console.log("Received Playlist:", playlist);
         
+        // Reset idle timer because she is about to speak
+        if (typeof resetIdleTimer === "function") resetIdleTimer();
+
         // Add new items to the queue
         audioQueue = audioQueue.concat(playlist);
         
@@ -185,15 +209,13 @@
         // 1. Check if queue is empty
         if (audioQueue.length === 0) {
             isPlayingSequence = false;
-            // Optional: Reset face when completely done
-            // triggerExp('Reset'); 
             return;
         }
 
         isPlayingSequence = true;
         
         // 2. Get the next segment
-        const currentItem = audioQueue.shift(); // Remove first item from list
+        const currentItem = audioQueue.shift(); 
 
         // 3. Update Text & Face
         if (currentItem.text) {
@@ -222,13 +244,12 @@
             isSpeaking = true;
 
             // 5. WHEN DONE: Recursion!
-            // When this clip finishes, immediately trigger this function again
             audio.onended = () => {
                 isSpeaking = false;
                 playNextInQueue(); 
             };
         } else {
-            // If audio failed for this clip, skip to next after 1 second
+            // Fallback if audio fails
             setTimeout(() => {
                 playNextInQueue();
             }, 1000);
