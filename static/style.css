@@ -117,3 +117,69 @@ button.send-btn {
             background: #007bff;
             border-color: #007bff;
         }
+
+    .navbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 60px;
+        background: rgba(10, 10, 15, 0.85); /* Dark Glass Effect */
+        backdrop-filter: blur(8px);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+        box-sizing: border-box;
+        z-index: 1000;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .nav-btn {
+        background: linear-gradient(135deg, #00d2ff, #3a7bd5);
+        color: white;
+        text-decoration: none;
+        padding: 8px 18px;
+        border-radius: 8px;
+        font-family: 'Segoe UI', sans-serif;
+        font-weight: 600;
+        font-size: 14px;
+        transition: transform 0.2s, box-shadow 0.2s;
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+    
+    .nav-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 210, 255, 0.4);
+    }
+
+    .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #ccc;
+        font-family: sans-serif;
+        font-size: 14px;
+    }
+
+    #emotion-select {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        outline: none;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    #emotion-select:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+    
+    #emotion-select option {
+        background: #222;
+        color: white;
+        padding: 10px;
+    }

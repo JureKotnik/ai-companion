@@ -10,43 +10,17 @@
     <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/cubism4.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-
 </head>
 
 <body>
+    {% include 'nav.html' %}
+
     <canvas id="canvas"></canvas>
-    <a href="/" class="switch-link">➡ SWITCH TO 3D</a>
 
     <div id="click-overlay"><div>▶ CLICK TO WAKE UP</div></div>
     <div id="loading" style="z-index: 2000; position: absolute; color: white;">Loading Live2D...</div>
     
     <div id="response-text"></div>
-
-    <div id="expression-bar">
-        <button class="exp-btn" onclick="triggerExp('Reset')">Reset</button>
-        <button class="exp-btn" onclick="triggerExp('Amazed')">Amazed</button>
-        <button class="exp-btn" onclick="triggerExp('Angry')">Angry</button>
-        <button class="exp-btn" onclick="triggerExp('Cry')">Cry</button>
-        <button class="exp-btn" onclick="triggerExp('Love')">Love</button>
-        <button class="exp-btn" onclick="triggerExp('Nervous')">Nervous</button>
-        <button class="exp-btn" onclick="triggerExp('Sleepy')">Sleepy</button>
-        <button class="exp-btn" onclick="triggerExp('Happy')">Happy</button>
-        <button class="exp-btn" onclick="triggerExp('Sad')">Sad</button>
-        <button class="exp-btn" onclick="triggerExp('Surprised')">Surprised</button>
-        <button class="exp-btn" onclick="triggerExp('Smug')">Smug</button>
-        <button class="exp-btn" onclick="triggerExp('Embarrassed')">Embarrassed</button>
-        <button class="exp-btn" onclick="triggerExp('Confused')">Confused</button>
-        <button class="exp-btn" onclick="triggerExp('Disgusted')">Disgusted</button>
-        <button class="exp-btn" onclick="triggerExp('Excited')">Excited</button>
-        <button class="exp-btn" onclick="triggerExp('Bored')">Bored</button>
-        <button class="exp-btn" onclick="triggerExp('Scared')">Scared</button>
-        <button class="exp-btn" onclick="triggerExp('Thinking')">Thinking</button>
-        <button class="exp-btn" onclick="triggerExp('Disappointed')">Disappointed</button>
-        <button class="exp-btn" onclick="triggerExp('Smiling')">Smiling</button>
-        <button class="exp-btn" onclick="triggerExp('Laughing')">Laughing</button>
-        <button class="exp-btn" onclick="triggerExp('Wink')">Wink</button>
-        <button class="exp-btn" onclick="triggerExp('Determined')">Determined</button>
-    </div>
 
     <div id="ui-container">
         <div class="mode-switch">
@@ -71,15 +45,8 @@
     const socket = io();
 
     // --- IDLE TIMER HOOKS ---
-    // These tell movements.js "I am still here!" so she doesn't fall asleep while you type.
-    
-    window.addEventListener('mousedown', () => {
-        if (typeof resetIdleTimer === "function") resetIdleTimer();
-    });
-
-    document.getElementById('msg-input').addEventListener('input', () => {
-        if (typeof resetIdleTimer === "function") resetIdleTimer();
-    });
+    window.addEventListener('mousedown', () => { if (typeof resetIdleTimer === "function") resetIdleTimer(); });
+    document.getElementById('msg-input').addEventListener('input', () => { if (typeof resetIdleTimer === "function") resetIdleTimer(); });
 
     // --- PIXI INITIALIZATION ---
     function initPixi() {
@@ -107,14 +74,11 @@
             app.ticker.add(animate);
 
             // Debug Logs
-            console.log("--- MODEL LOADED ---");
             const refs = model.internalModel.settings.json.FileReferences;
-            console.log("Files found in JSON:", refs);
-            
             if (refs.Expressions) {
                 console.log("✅ Expressions detected:", refs.Expressions);
             } else {
-                console.warn("❌ No 'Expressions' found in model3.json!");
+                console.warn("❌ No Expressions found in model3.json");
             }
 
         }).catch(err => {
@@ -123,7 +87,17 @@
         });
     }
     
+    // This function is called by the Dropdown in nav.html
     function triggerExp(name) {
+        // Update the dropdown UI to match (in case AI triggered it automatically)
+        const dropdown = document.getElementById('emotion-select');
+        if(dropdown && dropdown.value !== name) {
+            // Check if option exists before setting
+            if ([...dropdown.options].some(o => o.value === name)) {
+                dropdown.value = name;
+            }
+        }
+        
         if (model) setExpression(model, name);
     }
 
@@ -135,8 +109,6 @@
     }
 
     // --- INPUT HANDLERS ---
-    
-    // Wake up on first click
     document.getElementById('click-overlay').addEventListener('click', function() {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
@@ -157,10 +129,7 @@
     function sendText() {
         const input = document.getElementById('msg-input');
         if(!input.value) return;
-
-        // Reset idle timer because we are interacting
         if (typeof resetIdleTimer === "function") resetIdleTimer();
-
         socket.emit('user_message', { message: input.value });
         input.value = '';
         document.getElementById('response-text').style.display = 'none';
@@ -186,38 +155,25 @@
         };
     }
 
-    // --- PLAYLIST SYSTEM (EMOTION QUEUE) ---
+    // --- PLAYLIST SYSTEM ---
     let audioQueue = [];
     let isPlayingSequence = false;
 
     socket.on('speak_audio_sequence', (playlist) => {
-        console.log("Received Playlist:", playlist);
-        
-        // Reset idle timer because she is about to speak
         if (typeof resetIdleTimer === "function") resetIdleTimer();
-
-        // Add new items to the queue
         audioQueue = audioQueue.concat(playlist);
-        
-        // If not currently talking, start the queue
-        if (!isPlayingSequence) {
-            playNextInQueue();
-        }
+        if (!isPlayingSequence) playNextInQueue();
     });
 
     function playNextInQueue() {
-        // 1. Check if queue is empty
         if (audioQueue.length === 0) {
             isPlayingSequence = false;
             return;
         }
 
         isPlayingSequence = true;
-        
-        // 2. Get the next segment
         const currentItem = audioQueue.shift(); 
 
-        // 3. Update Text & Face
         if (currentItem.text) {
             const t = document.getElementById('response-text');
             t.innerText = currentItem.text; 
@@ -229,7 +185,6 @@
             triggerExp(currentItem.emotion);
         }
 
-        // 4. Play Audio
         if (currentItem.audio) {
             const audio = new Audio(currentItem.audio);
             audio.crossOrigin = 'anonymous';
@@ -242,17 +197,12 @@
             
             audio.play();
             isSpeaking = true;
-
-            // 5. WHEN DONE: Recursion!
             audio.onended = () => {
                 isSpeaking = false;
                 playNextInQueue(); 
             };
         } else {
-            // Fallback if audio fails
-            setTimeout(() => {
-                playNextInQueue();
-            }, 1000);
+            setTimeout(() => { playNextInQueue(); }, 1000);
         }
     }
     
