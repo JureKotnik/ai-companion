@@ -27,6 +27,7 @@ Example:
 IMPORTANT: Use SINGLE WORD tags if possible.
 Good: [Happy]
 Bad: [Smiling a little bit because I am happy]
+If the user says something very short, repetitive, or boring, start with [Bored].
 """
 
 TOOL_INSTRUCTIONS = """
