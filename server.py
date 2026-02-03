@@ -46,31 +46,84 @@ def process_response(user_text):
     else:
         ai_response = "I cannot think right now."
 
-    print(f"AI: {ai_response}")
+    print(f"AI Raw: {ai_response}")
 
-    spoken_text = re.sub(r'\[\[.*?\]\]', '', ai_response).strip()
+    # --- 1. SMARTER SPLITTING ---
+    # Split by ANY content inside brackets [] or asterisks **
+    # This catches [Smiling slightly] or [Tears up]
+    segments = re.split(r'(\[[^\]]+\]|\*[^\*]+\*)', ai_response)
+    
+    playlist = []
+    current_emotion = "Reset" # Default start
+    
+    # Define keywords to map "creative" tags to your actual files
+    emotion_map = {
+        "happy": "Happy", "smile": "Happy", "smiling": "Smiling",
+        "sad": "Sad", "cry": "Cry", "tear": "Cry", "depressed": "Sad",
+        "angry": "Angry", "mad": "Angry",
+        "love": "Love", "blush": "Love",
+        "nervous": "Nervous", "scared": "Scared",
+        "sleepy": "Sleepy", "tired": "Sleepy",
+        "amazed": "Amazed", "wow": "Amazed",
+        "confused": "Confused", "thinking": "Thinking",
+        "laugh": "Laughing", "haha": "Laughing"
+    }
 
-    filename = f"response_{int(time.time())}.wav"
-    filepath = os.path.join(audio_folder, filename)
-    audio_url = None
+    for segment in segments:
+        segment = segment.strip()
+        if not segment: continue
+        
+        # Check if this segment is a TAG (starts with [ or *)
+        is_tag = re.match(r'^[\*\[].*[\*\]]$', segment)
+        
+        if is_tag:
+            # Clean the tag (remove brackets and lowercase)
+            # "[Smiling slightly]" -> "smiling slightly"
+            raw_tag = re.sub(r'[\*\[\]]', '', segment).lower()
+            
+            found_match = False
+            # Check if any keyword exists in the tag
+            for key, val in emotion_map.items():
+                if key in raw_tag:
+                    current_emotion = val
+                    found_match = True
+                    break
+            
+            # If the tag was "Pauses and looks down" (no match), we usually Reset
+            if not found_match:
+                current_emotion = "Reset"
+                
+        else:
+            # It is text! Generate audio.
+            clean_text = re.sub(r'\[\[.*?\]\]', '', segment).strip()
+            # Remove punctuation-only segments (like "...")
+            if not re.search(r'[a-zA-Z0-9]', clean_text): continue
+            
+            filename = f"seq_{int(time.time())}_{len(playlist)}.wav"
+            filepath = os.path.join(audio_folder, filename)
+            
+            audio_url = None
+            if kokoro:
+                try:
+                    samples, sample_rate = kokoro.create(
+                        clean_text, 
+                        voice="af", 
+                        speed=1.0, 
+                        lang="en-us"
+                    )
+                    sf.write(filepath, samples, sample_rate)
+                    audio_url = f"/static/audio/{filename}"
+                except Exception as e:
+                    print(f"Audio Error: {e}")
 
-    if kokoro and spoken_text:
-        try:
-            samples, sample_rate = kokoro.create(
-                spoken_text, 
-                voice="af", 
-                speed=1.0, 
-                lang="en-us"
-            )
-            sf.write(filepath, samples, sample_rate)
-            audio_url = f"/static/audio/{filename}"
-        except Exception as e:
-            print(f"Audio Error: {e}")
+            playlist.append({
+                'text': clean_text,
+                'audio': audio_url,
+                'emotion': current_emotion
+            })
 
-    socketio.emit('speak_audio', {
-        'url': audio_url,
-        'text': ai_response 
-    }, namespace='/')
+    # Send the WHOLE playlist to the frontend
+    socketio.emit('speak_audio_sequence', playlist, namespace='/')
 
 @socketio.on('user_message')
 def handle_message(data):

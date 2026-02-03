@@ -9,6 +9,26 @@ import os
 import re
 from skills import extract_and_read_file, open_application
 
+EMOTION_INSTRUCTIONS = """
+You have a Live2D anime avatar. 
+When replying, you can control your facial expression.
+To do this, START your response with one of these exact tags:
+[Amazed], [Angry], [Cry], [Love], [Nervous], [Sleepy], [Happy], [Sad], [Surprised], [Smug], [Embarrassed], [Confused], [Disgusted], [Excited], [Bored], [Scared], [Thinking], [Laughing], [Wink], [Determined]
+
+Rules:
+1. The tag must be the VERY FIRST thing you write.
+2. Use brackets [] or asterisks ** (e.g., [Happy] or *Happy*).
+3. Only use emotions from the list above.
+
+Example:
+[Happy] That is wonderful news!
+*Angry* I do not like that.
+[Thinking] Let me check my database.
+IMPORTANT: Use SINGLE WORD tags if possible.
+Good: [Happy]
+Bad: [Smiling a little bit because I am happy]
+"""
+
 TOOL_INSTRUCTIONS = """
 To open an app, output ONLY: [[OPEN: app_name]]
 Do not ask for permission.
@@ -19,7 +39,7 @@ try:
 except ImportError:
     SYSTEM_PROMPT = "You are a professional AI companion."
 
-FULL_SYSTEM_PROMPT = SYSTEM_PROMPT + "\n" + TOOL_INSTRUCTIONS
+FULL_SYSTEM_PROMPT = SYSTEM_PROMPT + "\n" + TOOL_INSTRUCTIONS + "\n" + EMOTION_INSTRUCTIONS
 
 class CompanionBrain:
     def __init__(self, model_name="llama3.2", memory_file="memory.json"):

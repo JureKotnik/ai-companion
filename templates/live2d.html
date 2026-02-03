@@ -164,24 +164,76 @@
         };
     }
 
-    socket.on('speak_audio', (data) => {
-        if (data.text) {
-            const t = document.getElementById('response-text');
-            t.innerText = data.text; t.style.display = 'block';
+// --- NEW: PLAYLIST SYSTEM ---
+    let audioQueue = [];
+    let isPlayingSequence = false;
+
+    // Listen for the new "Sequence" event from server
+    socket.on('speak_audio_sequence', (playlist) => {
+        console.log("Received Playlist:", playlist);
+        
+        // Add new items to the queue
+        audioQueue = audioQueue.concat(playlist);
+        
+        // If not currently talking, start the queue
+        if (!isPlayingSequence) {
+            playNextInQueue();
         }
-        if(data.url) {
-            const audio = new Audio(data.url);
+    });
+
+    function playNextInQueue() {
+        // 1. Check if queue is empty
+        if (audioQueue.length === 0) {
+            isPlayingSequence = false;
+            // Optional: Reset face when completely done
+            // triggerExp('Reset'); 
+            return;
+        }
+
+        isPlayingSequence = true;
+        
+        // 2. Get the next segment
+        const currentItem = audioQueue.shift(); // Remove first item from list
+
+        // 3. Update Text & Face
+        if (currentItem.text) {
+            const t = document.getElementById('response-text');
+            t.innerText = currentItem.text; 
+            t.style.display = 'block';
+        }
+        
+        if (currentItem.emotion) {
+            console.log("Switching Face to:", currentItem.emotion);
+            triggerExp(currentItem.emotion);
+        }
+
+        // 4. Play Audio
+        if (currentItem.audio) {
+            const audio = new Audio(currentItem.audio);
             audio.crossOrigin = 'anonymous';
+            
             if(audioContext) {
                 const source = audioContext.createMediaElementSource(audio);
                 source.connect(analyser);
                 analyser.connect(audioContext.destination);
             }
+            
             audio.play();
             isSpeaking = true;
-            audio.onended = () => { isSpeaking = false; };
+
+            // 5. WHEN DONE: Recursion!
+            // When this clip finishes, immediately trigger this function again
+            audio.onended = () => {
+                isSpeaking = false;
+                playNextInQueue(); 
+            };
+        } else {
+            // If audio failed for this clip, skip to next after 1 second
+            setTimeout(() => {
+                playNextInQueue();
+            }, 1000);
         }
-    });
+    }
     
     window.addEventListener('resize', () => {
         if (app) app.renderer.resize(window.innerWidth, window.innerHeight);

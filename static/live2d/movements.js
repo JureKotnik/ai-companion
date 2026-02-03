@@ -68,6 +68,8 @@ function animateLive2D(model, time, isSpeaking) {
     } catch (e) { }
 }
 
+let speechTime = 0;
+
 function animateMouthLive2D(model, analyser, dataArray, isSpeaking) {
     if (!model || !model.internalModel) return;
 
@@ -75,37 +77,55 @@ function animateMouthLive2D(model, analyser, dataArray, isSpeaking) {
     
     if (isSpeaking && analyser) {
         analyser.getByteFrequencyData(dataArray);
+        
         let low = dataArray[5];
         let mid = dataArray[15];
         let high = dataArray[30];
-        let energy = (low * 1.5 + mid + high * 0.5) / 3;
         
-        targetOpenness = energy / 100;
+        let energy = (low + mid + high) / 3;
+
+        let pulse = (Math.sin(Date.now() / 60) * 0.2) + 0.8;
+        
+        targetOpenness = (energy / 80) * pulse;
+
         if (targetOpenness > 1.0) targetOpenness = 1.0;
-        if (energy < 10) targetOpenness = 0;
+        if (targetOpenness < 0.1) targetOpenness = 0;
     }
 
-    currentMouth += (targetOpenness - currentMouth) * 0.3;
+    let lerpFactor = (targetOpenness > currentMouth) ? 0.5 : 0.1;
+    
+    currentMouth += (targetOpenness - currentMouth) * lerpFactor;
 
     try { 
         model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', currentMouth); 
-        
-        let form = 0;
-        if (currentMouth > 0.3) form = 0.5; 
+        let form = currentMouth * 0.5;
         model.internalModel.coreModel.setParameterValueById('ParamMouthForm', form);
+        
     } catch (e) {}
 }
 
 function setExpression(model, expName) {
     if (!model) return;
     
-    if (!model.internalModel.motionManager.expressionManager) {
+    const manager = model.internalModel.motionManager.expressionManager;
+    if (!manager) {
         console.error("ERROR: Expression Manager is missing!");
         return;
     }
 
+    console.log("Attempting to trigger:", expName);
+    
+    if (manager.definitions && manager.definitions[expName]) {
+        const def = manager.definitions[expName];
+        const originalLength = def.Parameters.length;
+        def.Parameters = def.Parameters.filter(p => p.Id !== 'ParamMouthOpenY');
+        
+        if (def.Parameters.length < originalLength) {
+            console.log(`(Fixed) Removed Mouth Lock from ${expName}`);
+        }
+    }
+
     try {
-        console.log("Triggering:", expName);
         model.expression(expName);
     } catch(e) {
         console.error("Expression Error:", e);
