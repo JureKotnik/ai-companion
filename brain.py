@@ -13,7 +13,7 @@ EMOTION_INSTRUCTIONS = """
 You have a Live2D anime avatar. 
 When replying, you can control your facial expression.
 To do this, START your response with one of these exact tags:
-[Amazed], [Angry], [Cry], [Love], [Nervous], [Sleepy], [Happy], [Sad], [Surprised], [Smug], [Embarrassed], [Confused], [Disgusted], [Excited], [Bored], [Scared], [Thinking], [Laughing], [Wink], [Determined]
+[Amazed], [Angry], [Cry], [Love], [Nervous], [Sleepy], [Happy], [Sad], [Surprised], [Smug], [Embarrassed], [Confused], [Disgusted], [Excited], [Bored], [Scared], [Thinking], [Laughing], [Wink], [Determined], [Sneeze], [Shocked]
 
 Rules:
 1. The tag must be the VERY FIRST thing you write.

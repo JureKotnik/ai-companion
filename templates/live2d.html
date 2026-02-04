@@ -86,12 +86,32 @@
         });
     }
     
-    // This function is called by the Dropdown in nav.html
+    let currentMood = "Reset"; 
+
     function triggerExp(name) {
-        // Update the dropdown UI to match (in case AI triggered it automatically)
         const dropdown = document.getElementById('emotion-select');
+        
+        const actions = ["Wink", "Surprised", "Sneeze", "Shocked"];
+        
+        if (actions.includes(name)) {
+            console.log(`⚡ Performing Action: ${name}`);
+            
+            if (model) setExpression(model, name);
+
+            if(dropdown) dropdown.value = name;
+
+            setTimeout(() => {
+                console.log(`🔙 Returning to mood: ${currentMood}`);
+                if (model) setExpression(model, currentMood);
+                
+                if(dropdown) dropdown.value = currentMood;
+            }, 600); 
+
+            return;
+        }
+        currentMood = name; 
+        
         if(dropdown && dropdown.value !== name) {
-            // Check if option exists before setting
             if ([...dropdown.options].some(o => o.value === name)) {
                 dropdown.value = name;
             }
@@ -107,7 +127,6 @@
         animateMouthLive2D(model, analyser, dataArray, isSpeaking);
     }
 
-    // --- INPUT HANDLERS ---
     window.onload = function() {
     initPixi();
     };
