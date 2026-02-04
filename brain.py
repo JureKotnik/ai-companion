@@ -9,6 +9,14 @@ import os
 import re
 from skills import extract_and_read_file, open_application
 
+# --- 1. NEW PERSONALITY RULES (Makes her talkative) ---
+PERSONALITY_INSTRUCTIONS = """
+ROLE & BEHAVIOR:
+1. **Be Detailed & Talkative:** You are a close friend, not a search engine. Do not give short 1-sentence answers. Explain your thoughts, share feelings, and ask follow-up questions.
+2. **Be Affectionate:** Treat the user with warmth and care.
+3. **Be Expressive:** Your face (Live2D) is your main way of communicating. Use emotion tags constantly.
+"""
+
 EMOTION_INSTRUCTIONS = """
 You have a Live2D anime avatar. 
 When replying, you can control your facial expression.
@@ -40,16 +48,19 @@ try:
 except ImportError:
     SYSTEM_PROMPT = "You are a professional AI companion."
 
-FULL_SYSTEM_PROMPT = SYSTEM_PROMPT + "\n" + TOOL_INSTRUCTIONS + "\n" + EMOTION_INSTRUCTIONS
+# --- 2. COMBINE ALL RULES ---
+FULL_SYSTEM_PROMPT = SYSTEM_PROMPT + "\n" + PERSONALITY_INSTRUCTIONS + "\n" + TOOL_INSTRUCTIONS + "\n" + EMOTION_INSTRUCTIONS
 
 class CompanionBrain:
-    def __init__(self, model_name="llama3.2", memory_file="memory.json"):
+    # --- 3. UPDATED TO LLAMA 3.1 (Better Logic) ---
+    def __init__(self, model_name="llama3.1", memory_file="memory.json"):
         self.model_name = model_name
         self.memory_file = memory_file
         self.MEMORY_LIMIT = 20
         self.KEEP_RECENT = 10
         self.messages = self._load_memory()
 
+        # Force update the system prompt every time we start
         if self.messages and self.messages[0]['role'] == 'system':
             self.messages[0]['content'] = FULL_SYSTEM_PROMPT
 
