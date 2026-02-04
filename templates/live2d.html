@@ -137,32 +137,87 @@
     document.getElementById('msg-input').addEventListener('keypress', (e) => { if(e.key==='Enter') sendText(); });
 
     // --- VOICE RECOGNITION ---
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if(Recognition) {
-        const rec = new Recognition(); rec.lang = 'en-US';
-        const btn = document.getElementById('mic-btn');
-        function startRec() { try { rec.start(); } catch(e){} btn.classList.add('listening'); btn.innerText = "Listening..."; }
-        function stopRec() { rec.stop(); btn.classList.remove('listening'); btn.innerText = "Processing..."; }
-        window.addEventListener('keydown', (e) => { if(e.code === 'Space' && !e.repeat) startRec(); });
-        window.addEventListener('keyup', (e) => { if(e.code === 'Space') stopRec(); });
-        btn.addEventListener('mousedown', startRec);
-        btn.addEventListener('mouseup', stopRec);
-        rec.onresult = (e) => {
-            const txt = e.results[0][0].transcript;
-            btn.innerText = "Sent: " + txt;
-            socket.emit('user_message', { message: txt });
-            if (typeof resetIdleTimer === "function") resetIdleTimer();
-        };
+let mediaRecorder;
+    let audioChunks = [];
+    const micBtn = document.getElementById('mic-btn');
+
+    // 1. Setup Microphone
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    // Send the Blob to the Server
+                    socket.emit('audio_stream', audioBlob);
+                    audioChunks = []; // Reset
+                    
+                    micBtn.innerText = "Processing...";
+                };
+            })
+            .catch(err => {
+                console.error("Mic Access Error:", err);
+                micBtn.innerText = "Mic Error (Check Console)";
+            });
+    } else {
+        micBtn.innerText = "Mic Not Supported";
     }
 
+    // 2. Button Logic (Hold to Talk)
+    function startRecording() {
+        if (mediaRecorder && mediaRecorder.state === "inactive") {
+            audioChunks = [];
+            mediaRecorder.start();
+            micBtn.classList.add('listening');
+            micBtn.innerText = "Listening...";
+            micBtn.style.background = "#ff4b4b"; // Red
+        }
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+            micBtn.classList.remove('listening');
+            micBtn.style.background = ""; // Reset
+        }
+    }
+
+    // 3. Triggers
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && !e.repeat) startRecording();
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (e.code === 'Space') stopRecording();
+    });
+
+    micBtn.addEventListener('mousedown', startRecording);
+    micBtn.addEventListener('mouseup', stopRecording);
+    micBtn.addEventListener('mouseleave', stopRecording);
     // --- PLAYLIST SYSTEM ---
     let audioQueue = [];
     let isPlayingSequence = false;
 
     socket.on('speak_audio_sequence', (playlist) => {
+        console.log("Received Playlist:", playlist);
+        
+        const btn = document.getElementById('mic-btn');
+        if (btn) {
+            btn.innerText = "Hold SPACE to Speak";
+            btn.classList.remove('listening');
+            btn.style.background = "";
+        }
+
         if (typeof resetIdleTimer === "function") resetIdleTimer();
-        audioQueue = audioQueue.concat(playlist);
-        if (!isPlayingSequence) playNextInQueue();
+        audioQueue = audioQueue.concat(playlist); 
+        if (!isPlayingSequence) {
+            playNextInQueue();
+        }
     });
 
     function playNextInQueue() {
@@ -205,6 +260,15 @@
             setTimeout(() => { playNextInQueue(); }, 1000);
         }
     }
+
+    socket.on('error', (data) => {
+        console.error("Server Error:", data);
+        const btn = document.getElementById('mic-btn');
+        if (btn) {
+            btn.innerText = "Error - Try Again";
+            setTimeout(() => { btn.innerText = "Hold SPACE to Speak"; }, 2000);
+        }
+    });
     
     window.addEventListener('resize', () => {
         if (app) app.renderer.resize(window.innerWidth, window.innerHeight);

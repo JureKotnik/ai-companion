@@ -6,6 +6,9 @@ import soundfile as sf
 import re
 from kokoro_onnx import Kokoro 
 from brain import CompanionBrain
+import whisper
+import io
+import tempfile
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
@@ -20,6 +23,13 @@ try:
 except:
     kokoro = None
     print("❌ Error: Kokoro files missing.")
+
+try:
+    stt_model = whisper.load_model("tiny.en")
+    print("✔ Whisper STT Loaded.")
+except Exception as e:
+    stt_model = None
+    print(f"❌ Error loading Whisper: {e}")
 
 try:
     brain = CompanionBrain(model_name="llama3.2")
@@ -129,6 +139,42 @@ def process_response(user_text):
 def handle_message(data):
     user_text = data.get('message')
     socketio.start_background_task(process_response, user_text)
+
+@socketio.on('audio_stream')
+def handle_audio_stream(audio_data):
+    if not stt_model:
+        emit('error', {'message': "Whisper is not loaded on server."})
+        return
+
+    try:
+        # 1. Save the audio data to a TEMPORARY file on your hard drive
+        # Whisper requires a real file path to run ffmpeg on it.
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
+            temp_audio.write(audio_data)
+            temp_path = temp_audio.name # This gets the real path (e.g. C:\Users\Temp\tmp123.webm)
+        
+        print(f"🎤 Processing audio file: {temp_path}")
+
+        # 2. Transcribe the REAL file
+        # fp16=False prevents warnings on CPU
+        result = stt_model.transcribe(temp_path, fp16=False) 
+        text = result['text'].strip()
+        
+        # 3. Delete the file (Clean up)
+        os.remove(temp_path)
+        
+        if text:
+            print(f"🎤 Heard: {text}")
+            # Send the text to the brain
+            socketio.start_background_task(process_response, text)
+        else:
+            emit('error', {'message': "Could not understand audio."})
+
+    except Exception as e:
+        print(f"❌ STT Error: {e}")
+        # Clean up if something broke
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 if __name__ == '__main__':
     print("--- SERVER ONLINE ---")
