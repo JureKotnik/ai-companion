@@ -7,7 +7,7 @@ import re
 from kokoro_onnx import Kokoro 
 from brain import CompanionBrain
 import whisper
-import io
+import sys
 import tempfile
 
 app = Flask(__name__)
@@ -47,93 +47,120 @@ def live2d_page():
     return render_template('index.html')
 
 def process_response(user_text):
-    print(f"User: {user_text}")
+    print(f"\nUser: {user_text}")
+    print("AI: ", end="", flush=True) # Prepare terminal for typing
 
-    ai_response = ""
-    if brain:
-        for chunk in brain.stream_response(user_text):
-            ai_response += chunk
-    else:
-        ai_response = "I cannot think right now."
-
-    print(f"AI Raw: {ai_response}")
-
-    # --- 1. SMARTER SPLITTING ---
-    # Split by ANY content inside brackets [] or asterisks **
-    # This catches [Smiling slightly] or [Tears up]
-    segments = re.split(r'(\[[^\]]+\]|\*[^\*]+\*)', ai_response)
-    
-    playlist = []
-    current_emotion = "Reset" # Default start
-    
-    # Define keywords to map "creative" tags to your actual files
+    # 1. Define Emotions Map
     emotion_map = {
         "happy": "Happy", "smile": "Happy", "smiling": "Smiling",
         "sad": "Sad", "cry": "Cry", "tear": "Cry", "depressed": "Sad",
-        "angry": "Angry", "mad": "Angry",
-        "love": "Love", "blush": "Love",
-        "nervous": "Nervous", "scared": "Scared",
-        "sleepy": "Sleepy", "tired": "Sleepy",
-        "amazed": "Amazed", "wow": "Amazed",
-        "confused": "Confused", "thinking": "Thinking",
-        "laugh": "Laughing", "haha": "Laughing"
+        "angry": "Angry", "mad": "Angry", "furious": "Angry",
+        "wink": "Wink", "flirt": "Wink",
+        "love": "Love", "blush": "Love", "shy": "Embarrassed",
+        "nervous": "Nervous", "scared": "Scared", "afraid": "Scared",
+        "sleepy": "Sleepy", "tired": "Sleepy", "yawn": "Sleepy",
+        "amazed": "Amazed", "wow": "Amazed", "surprised": "Surprised",
+        "confused": "Confused", "huh": "Confused", "what": "Confused",
+        "thinking": "Thinking", "hmm": "Thinking",
+        "laugh": "Laughing", "haha": "Laughing", "lol": "Laughing",
+        "bored": "Bored", "determined": "Determined", "serious": "Determined",
+        "disgusted": "Disgusted", "eww": "Disgusted", "gross": "Disgusted",
+        "disappointed": "Disappointed", "sigh": "Disappointed"
     }
 
-    for segment in segments:
-        segment = segment.strip()
-        if not segment: continue
-        
-        # Check if this segment is a TAG (starts with [ or *)
-        is_tag = re.match(r'^[\*\[].*[\*\]]$', segment)
-        
-        if is_tag:
-            # Clean the tag (remove brackets and lowercase)
-            # "[Smiling slightly]" -> "smiling slightly"
-            raw_tag = re.sub(r'[\*\[\]]', '', segment).lower()
+    if brain:
+        buffer = ""
+        current_emotion = None # Hold emotion until we speak
+
+        # 2. Stream the response chunk by chunk
+        for chunk in brain.stream_response(user_text):
+            buffer += chunk
+            sys.stdout.write(chunk) # Type to terminal immediately
+            sys.stdout.flush()
             
-            found_match = False
-            # Check if any keyword exists in the tag
-            for key, val in emotion_map.items():
-                if key in raw_tag:
-                    current_emotion = val
-                    found_match = True
-                    break
-            
-            # If the tag was "Pauses and looks down" (no match), we usually Reset
-            if not found_match:
-                current_emotion = "Reset"
+            # 3. If we hit a punctuation mark, process the sentence
+            if re.search(r'[.!?;:]', chunk):
+                # Split buffer into sentences (keeping punctuation)
+                parts = re.split(r'([.!?;:])', buffer)
+                buffer = "" # Clear buffer for next sentence
                 
-        else:
-            # It is text! Generate audio.
-            clean_text = re.sub(r'\[\[.*?\]\]', '', segment).strip()
-            # Remove punctuation-only segments (like "...")
-            if not re.search(r'[a-zA-Z0-9]', clean_text): continue
-            
-            filename = f"seq_{int(time.time())}_{len(playlist)}.wav"
-            filepath = os.path.join(audio_folder, filename)
-            
-            audio_url = None
-            if kokoro:
-                try:
-                    samples, sample_rate = kokoro.create(
-                        clean_text, 
-                        voice="af", 
-                        speed=1.0, 
-                        lang="en-us"
-                    )
-                    sf.write(filepath, samples, sample_rate)
-                    audio_url = f"/static/audio/{filename}"
-                except Exception as e:
-                    print(f"Audio Error: {e}")
+                # Re-assemble (e.g., "Hello" + "!")
+                sentences = ["".join(x) for x in zip(parts[0::2], parts[1::2])]
+                
+                playlist = []
+                
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence: continue
 
-            playlist.append({
-                'text': clean_text,
-                'audio': audio_url,
-                'emotion': current_emotion
-            })
+                    # --- A. EXTRACT EMOTION ---
+                    # Look for [Tag] or *Action*
+                    tag_match = re.search(r'[\*\[](.*?)[\*\]]', sentence)
+                    
+                    if tag_match:
+                        raw_tag = tag_match.group(1).lower() # e.g. "smiling slightly"
+                        
+                        # Find matching emotion in our map
+                        found_emo = False
+                        for key, val in emotion_map.items():
+                            if key in raw_tag:
+                                current_emotion = val
+                                found_emo = True
+                                print(f"\n[Expression Set: {current_emotion}]")
+                                break
+                        
+                        if not found_emo:
+                            current_emotion = "Reset"
 
-    # Send the WHOLE playlist to the frontend
-    socketio.emit('speak_audio_sequence', playlist, namespace='/')
+                    # --- B. OPEN APPS ---
+                    if "[[OPEN:" in sentence:
+                        print(f"\n[Command: {sentence}]")
+                        continue
+
+                    # --- C. CLEAN TEXT FOR AUDIO (Crucial for "Noises") ---
+                    # 1. Remove [Tags] and *Actions* completely
+                    audio_text = re.sub(r'[\*\[].*?[\*\]]', '', sentence)
+                    # 2. Remove emojis and weird symbols
+                    audio_text = re.sub(r'[^\w\s,.!?;:\']', '', audio_text)
+                    audio_text = re.sub(r'\bIT\b', 'it', audio_text)
+                    audio_text = re.sub(r'\bAM\b', 'am', audio_text)
+                    audio_text = audio_text.strip()
+
+                    # 3. SAFETY CHECK: If text is just "." or empty, SKIP IT
+                    # This prevents the "Random Noise" glitch
+                    if not any(c.isalnum() for c in audio_text):
+                        continue 
+
+                    # --- D. GENERATE AUDIO ---
+                    filename = f"seq_{int(time.time())}_{len(playlist)}.wav"
+                    filepath = os.path.join(audio_folder, filename)
+                    audio_url = None
+
+                    if kokoro:
+                        try:
+                            samples, sample_rate = kokoro.create(
+                                audio_text, 
+                                voice="af", 
+                                speed=1.0, 
+                                lang="en-us"
+                            )
+                            sf.write(filepath, samples, sample_rate)
+                            audio_url = f"/static/audio/{filename}"
+                        except Exception as e:
+                            print(f"\nAudio Error: {e}")
+
+                    # Add to playlist
+                    playlist.append({
+                        'text': sentence, # Send original text to screen (so we see tags)
+                        'audio': audio_url,
+                        'emotion': current_emotion
+                    })
+
+                # Emit batch immediately
+                if playlist:
+                    socketio.emit('speak_audio_sequence', playlist, namespace='/')
+        
+        print("")
 
 @socketio.on('user_message')
 def handle_message(data):

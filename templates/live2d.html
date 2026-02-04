@@ -17,7 +17,6 @@
 
     <canvas id="canvas"></canvas>
 
-    <div id="click-overlay"><div>▶ CLICK TO WAKE UP</div></div>
     <div id="loading" style="z-index: 2000; position: absolute; color: white;">Loading Live2D...</div>
     
     <div id="response-text"></div>
@@ -109,15 +108,21 @@
     }
 
     // --- INPUT HANDLERS ---
-    document.getElementById('click-overlay').addEventListener('click', function() {
+    window.onload = function() {
+    initPixi();
+    };
+
+    function ensureAudioContext() {
+    if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
         dataArray = new Uint8Array(analyser.frequencyBinCount);
-        if(audioContext.state === 'suspended') audioContext.resume();
-        this.style.display = 'none';
-        initPixi(); 
-    });
+    }
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
+     }
+    }
 
     function setMode(mode) {
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
@@ -127,6 +132,7 @@
     }
 
     function sendText() {
+        ensureAudioContext();
         const input = document.getElementById('msg-input');
         if(!input.value) return;
         if (typeof resetIdleTimer === "function") resetIdleTimer();
@@ -170,6 +176,7 @@ let mediaRecorder;
 
     // 2. Button Logic (Hold to Talk)
     function startRecording() {
+        ensureAudioContext();
         if (mediaRecorder && mediaRecorder.state === "inactive") {
             audioChunks = [];
             mediaRecorder.start();
@@ -221,6 +228,7 @@ let mediaRecorder;
     });
 
     function playNextInQueue() {
+        ensureAudioContext();
         if (audioQueue.length === 0) {
             isPlayingSequence = false;
             return;
