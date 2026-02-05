@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Astra AI (Live2D)</title>
-    
     <link rel="stylesheet" href="/static/style.css">
-
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.2/browser/pixi.min.js"></script>
     <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/cubism4.min.js"></script>
@@ -16,9 +15,7 @@
     {% include 'nav.html' %}
 
     <canvas id="canvas"></canvas>
-
     <div id="loading" style="z-index: 2000; position: absolute; color: white;">Loading Live2D...</div>
-    
     <div id="response-text"></div>
 
     <div id="ui-container">
@@ -26,10 +23,12 @@
             <button class="mode-btn active" onclick="setMode('text')">⌨ TEXT</button>
             <button class="mode-btn" onclick="setMode('voice')">🎤 VOICE</button>
         </div>
+
         <div id="text-area" class="visible">
             <input type="text" id="msg-input" placeholder="Type message..." autocomplete="off">
             <button class="send-btn" onclick="sendText()">SEND</button>
         </div>
+
         <div id="voice-area">
             <button id="mic-btn">Hold SPACE to Speak</button>
         </div>
@@ -37,277 +36,16 @@
 
     <script src="/static/live2d/movements/movements.js"></script>
 
-<script>
-    const MODEL_PATH = '/static/live2d/model/demongirl.model3.json'; 
-    let app, model; 
-    let audioContext, analyser, dataArray, isSpeaking = false;
-    const socket = io();
+    <script src="/static/js/globals.js"></script>
 
-    // --- IDLE TIMER HOOKS ---
-    window.addEventListener('mousedown', () => { if (typeof resetIdleTimer === "function") resetIdleTimer(); });
-    document.getElementById('msg-input').addEventListener('input', () => { if (typeof resetIdleTimer === "function") resetIdleTimer(); });
+    <script src="/static/js/model-manager.js"></script>
+    <script src="/static/js/audio-manager.js"></script>
+    <script src="/static/js/ui-handler.js"></script>
 
-    // --- PIXI INITIALIZATION ---
-    function initPixi() {
-        const canvasElement = document.getElementById('canvas');
-        
-        app = new PIXI.Application({
-            view: canvasElement,
-            resizeTo: window,
-            transparent: true, 
-            autoDensity: true,
-            antialias: true
-        });
-
-        PIXI.live2d.Live2DModel.from(MODEL_PATH, { autoInteract: false }).then((loadedModel) => {
-            model = loadedModel;
-            app.stage.addChild(model);
-            
-            model.anchor.set(0.5, 0.5);
-            model.x = window.innerWidth / 2;
-            model.y = window.innerHeight / 2 + 100;
-            const scale = (window.innerHeight * 0.4) / model.height;
-            model.scale.set(scale);
-
-            document.getElementById('loading').style.display = 'none';
-            app.ticker.add(animate);
-
-            // Debug Logs
-            const refs = model.internalModel.settings.json.FileReferences;
-            if (refs.Expressions) {
-                console.log("✅ Expressions detected:", refs.Expressions);
-            } else {
-                console.warn("❌ No Expressions found in model3.json");
-            }
-
-        }).catch(err => {
-            console.error("FAILED TO LOAD MODEL:", err);
-            document.getElementById('loading').innerText = "Load Failed: " + err;
-        });
-    }
-    
-    let currentMood = "Reset"; 
-
-    function triggerExp(name) {
-        const dropdown = document.getElementById('emotion-select');
-        
-        const actions = ["Wink", "Surprised", "Sneeze", "Shocked"];
-        
-        if (actions.includes(name)) {
-            console.log(`⚡ Performing Action: ${name}`);
-            
-            if (model) setExpression(model, name);
-
-            if(dropdown) dropdown.value = name;
-
-            setTimeout(() => {
-                console.log(`🔙 Returning to mood: ${currentMood}`);
-                if (model) setExpression(model, currentMood);
-                
-                if(dropdown) dropdown.value = currentMood;
-            }, 600); 
-
-            return;
-        }
-        currentMood = name; 
-        
-        if(dropdown && dropdown.value !== name) {
-            if ([...dropdown.options].some(o => o.value === name)) {
-                dropdown.value = name;
-            }
-        }
-        
-        if (model) setExpression(model, name);
-    }
-
-    function animate() {
-        if (!model) return;
-        let time = Date.now() / 1000;
-        animateLive2D(model, time, isSpeaking);
-        animateMouthLive2D(model, analyser, dataArray, isSpeaking);
-    }
-
-    window.onload = function() {
-    initPixi();
-    };
-
-    function ensureAudioContext() {
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        dataArray = new Uint8Array(analyser.frequencyBinCount);
-    }
-    if (audioContext.state === 'suspended') {
-        audioContext.resume();
-     }
-    }
-
-    function setMode(mode) {
-        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-        document.querySelector(`.mode-btn[onclick="setMode('${mode}')"]`).classList.add('active');
-        document.getElementById('text-area').className = mode === 'text' ? 'visible' : '';
-        document.getElementById('voice-area').className = mode === 'voice' ? 'visible' : '';
-    }
-
-    function sendText() {
-        ensureAudioContext();
-        const input = document.getElementById('msg-input');
-        if(!input.value) return;
-        if (typeof resetIdleTimer === "function") resetIdleTimer();
-        socket.emit('user_message', { message: input.value });
-        input.value = '';
-        document.getElementById('response-text').style.display = 'none';
-    }
-    document.getElementById('msg-input').addEventListener('keypress', (e) => { if(e.key==='Enter') sendText(); });
-
-    // --- VOICE RECOGNITION ---
-let mediaRecorder;
-    let audioChunks = [];
-    const micBtn = document.getElementById('mic-btn');
-
-    // 1. Setup Microphone
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(stream => {
-                mediaRecorder = new MediaRecorder(stream);
-
-                mediaRecorder.ondataavailable = event => {
-                    audioChunks.push(event.data);
-                };
-
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    // Send the Blob to the Server
-                    socket.emit('audio_stream', audioBlob);
-                    audioChunks = []; // Reset
-                    
-                    micBtn.innerText = "Processing...";
-                };
-            })
-            .catch(err => {
-                console.error("Mic Access Error:", err);
-                micBtn.innerText = "Mic Error (Check Console)";
-            });
-    } else {
-        micBtn.innerText = "Mic Not Supported";
-    }
-
-    // 2. Button Logic (Hold to Talk)
-    function startRecording() {
-        ensureAudioContext();
-        if (mediaRecorder && mediaRecorder.state === "inactive") {
-            audioChunks = [];
-            mediaRecorder.start();
-            micBtn.classList.add('listening');
-            micBtn.innerText = "Listening...";
-            micBtn.style.background = "#ff4b4b"; // Red
-        }
-    }
-
-    function stopRecording() {
-        if (mediaRecorder && mediaRecorder.state === "recording") {
-            mediaRecorder.stop();
-            micBtn.classList.remove('listening');
-            micBtn.style.background = ""; // Reset
-        }
-    }
-
-    // 3. Triggers
-    window.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' && !e.repeat) startRecording();
-    });
-
-    window.addEventListener('keyup', (e) => {
-        if (e.code === 'Space') stopRecording();
-    });
-
-    micBtn.addEventListener('mousedown', startRecording);
-    micBtn.addEventListener('mouseup', stopRecording);
-    micBtn.addEventListener('mouseleave', stopRecording);
-    // --- PLAYLIST SYSTEM ---
-    let audioQueue = [];
-    let isPlayingSequence = false;
-
-    socket.on('speak_audio_sequence', (playlist) => {
-        console.log("Received Playlist:", playlist);
-        
-        const btn = document.getElementById('mic-btn');
-        if (btn) {
-            btn.innerText = "Hold SPACE to Speak";
-            btn.classList.remove('listening');
-            btn.style.background = "";
-        }
-
-        if (typeof resetIdleTimer === "function") resetIdleTimer();
-        audioQueue = audioQueue.concat(playlist); 
-        if (!isPlayingSequence) {
-            playNextInQueue();
-        }
-    });
-
-    function playNextInQueue() {
-        ensureAudioContext();
-        if (audioQueue.length === 0) {
-            isPlayingSequence = false;
-            return;
-        }
-
-        isPlayingSequence = true;
-        const currentItem = audioQueue.shift(); 
-
-        if (currentItem.text) {
-            const t = document.getElementById('response-text');
-            t.innerText = currentItem.text; 
-            t.style.display = 'block';
-        }
-        
-        if (currentItem.emotion) {
-            console.log("Switching Face to:", currentItem.emotion);
-            triggerExp(currentItem.emotion);
-        }
-
-        if (currentItem.audio) {
-            const audio = new Audio(currentItem.audio);
-            audio.crossOrigin = 'anonymous';
-            
-            if(audioContext) {
-                const source = audioContext.createMediaElementSource(audio);
-                source.connect(analyser);
-                analyser.connect(audioContext.destination);
-            }
-            
-            audio.play();
-            isSpeaking = true;
-            audio.onended = () => {
-            // 1. TELL SERVER TO DELETE THE FILE
-            // We send the filename we just finished listening to
-            socket.emit('delete_audio', { filename: currentItem.audio });
-
-            isPlayingSequence = false;
-            
-            // 2. Small delay before next sentence (makes it sound natural)
-            setTimeout(() => {
-                playNextInQueue();
-            }, 200); 
-          };
-        } else {
-            setTimeout(() => { playNextInQueue(); }, 1000);
-        }
-    }
-
-    socket.on('error', (data) => {
-        console.error("Server Error:", data);
-        const btn = document.getElementById('mic-btn');
-        if (btn) {
-            btn.innerText = "Error - Try Again";
-            setTimeout(() => { btn.innerText = "Hold SPACE to Speak"; }, 2000);
-        }
-    });
-    
-    window.addEventListener('resize', () => {
-        if (app) app.renderer.resize(window.innerWidth, window.innerHeight);
-    });
-</script>
+    <script>
+        window.onload = function() {
+            initPixi();
+        };
+    </script>
 </body>
 </html>
