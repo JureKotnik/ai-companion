@@ -1,7 +1,7 @@
-// UI INTERACTION & EVENTS
+// FILE: static/js/ui-handler.js
 
 function setMode(mode) {
-    ensureAudioContext(); // Unlock audio
+    if(typeof ensureAudioContext === 'function') ensureAudioContext();
     
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
     document.querySelector(`.mode-btn[onclick="setMode('${mode}')"]`).classList.add('active');
@@ -11,9 +11,13 @@ function setMode(mode) {
 }
 
 function sendText() {
-    ensureAudioContext();
+    if(typeof ensureAudioContext === 'function') ensureAudioContext();
     const input = document.getElementById('msg-input');
     if(!input.value) return;
+    
+    // Set Global Flags
+    window.isServerGenerating = true; 
+    if(window.setButtonState) window.setButtonState('THINKING');
     
     if (typeof resetIdleTimer === "function") resetIdleTimer();
     
@@ -22,46 +26,60 @@ function sendText() {
     document.getElementById('response-text').style.display = 'none';
 }
 
-// --- IDLE RESET HOOKS ---
-window.addEventListener('mousedown', () => { if (typeof resetIdleTimer === "function") resetIdleTimer(); });
-document.getElementById('msg-input').addEventListener('input', () => { if (typeof resetIdleTimer === "function") resetIdleTimer(); });
+function toggleConversationMode() {
+    // Toggle Global Variable
+    window.conversationMode = !window.conversationMode;
+    const btn = document.getElementById('auto-mode-btn');
+    
+    if (window.conversationMode) {
+        btn.innerText = "🔄 Auto-Chat: ON";
+        btn.style.background = "#00cc00"; 
+        console.log("Conversation Mode Started");
+        if(window.startRecording) window.startRecording(); 
+    } else {
+        btn.innerText = "🔄 Auto-Chat: OFF";
+        btn.style.background = "#444"; 
+        console.log("Conversation Mode Stopped");
+        
+        if(window.stopRecording) window.stopRecording(); 
+        
+        // Reset Globals
+        window.isServerGenerating = false;
+        window.isSpeaking = false;
+        if(window.setButtonState) window.setButtonState('IDLE');
+    }
+}
 
-// --- KEYBOARD LISTENERS ---
+// --- EVENT LISTENERS ---
 document.getElementById('msg-input').addEventListener('keypress', (e) => { 
     if(e.key==='Enter') sendText(); 
 });
 
 window.addEventListener('keydown', (e) => {
-    // Only record if not typing in the box
     if (document.activeElement.id !== 'msg-input') {
-        if (e.code === 'Space' && !e.repeat) startRecording();
+        if (e.code === 'Space' && !e.repeat && !window.conversationMode) {
+            if(window.startRecording) window.startRecording();
+        }
     }
 });
 
 window.addEventListener('keyup', (e) => {
     if (document.activeElement.id !== 'msg-input') {
-        if (e.code === 'Space') stopRecording();
+        if (e.code === 'Space' && !window.conversationMode) {
+            if(window.stopRecording) window.stopRecording();
+        }
     }
 });
 
-// --- MOUSE LISTENERS (MIC BUTTON) ---
 const micBtn = document.getElementById('mic-btn');
 if(micBtn) {
-    micBtn.addEventListener('mousedown', startRecording);
-    micBtn.addEventListener('mouseup', stopRecording);
-    micBtn.addEventListener('mouseleave', stopRecording);
+    micBtn.addEventListener('mousedown', () => { 
+        if(!window.conversationMode && window.startRecording) window.startRecording(); 
+    });
+    micBtn.addEventListener('mouseup', () => { 
+        if(!window.conversationMode && window.stopRecording) window.stopRecording(); 
+    });
+    micBtn.addEventListener('mouseleave', () => { 
+        if(!window.conversationMode && window.stopRecording) window.stopRecording(); 
+    });
 }
-
-// --- SERVER ERROR HANDLING ---
-socket.on('error', (data) => {
-    console.error("Server Error:", data);
-    const btn = document.getElementById('mic-btn');
-    if (btn) {
-        btn.innerText = "Error - Try Again";
-        btn.style.background = "darkred";
-        setTimeout(() => { 
-            btn.innerText = "Hold SPACE to Speak"; 
-            btn.style.background = "";
-        }, 2000);
-    }
-});

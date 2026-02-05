@@ -31,16 +31,20 @@
 
         <div id="voice-area">
             <button id="mic-btn">Hold SPACE to Speak</button>
+            <button id="auto-mode-btn" onclick="toggleConversationMode()" style="margin-top: 10px; background: #444; color: white; border: 1px solid #666;">
+                🔄 Auto-Chat: OFF
+            </button>
         </div>
     </div>
 
-    <script src="/static/live2d/movements/movements.js"></script>
-
     <script src="/static/js/globals.js"></script>
-
     <script src="/static/js/model-manager.js"></script>
     <script src="/static/js/audio-manager.js"></script>
     <script src="/static/js/ui-handler.js"></script>
+    <script src="/static/live2d/movements/movements.js"></script>
+
+
+    
 
     <script>
         window.onload = function() {

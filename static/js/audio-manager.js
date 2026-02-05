@@ -1,10 +1,76 @@
-// MICROPHONE & PLAYBACK LOGIC
+// FILE: static/js/audio-manager.js
 
+// --- LOCAL VARIABLES (Internal use only) ---
 let mediaRecorder;
 let audioChunks = [];
 let micAnalyser, micDataArray, micVisualizerInterval;
 
-// --- 1. MICROPHONE SETUP ---
+// Silence Detection Counters
+let speakingFrameCount = 0;
+let silenceFrameCount = 0;
+let recordingStartTime = 0;
+let silenceLoopActive = false;
+
+// NOTE: isRecording, isSpeaking, etc. are now inherited from globals.js
+
+// --- UI HELPER: BUTTON STATE ---
+function setButtonState(state) {
+    const btn = document.getElementById('mic-btn');
+    if (!btn) return;
+
+    clearInterval(micVisualizerInterval);
+    btn.style.boxShadow = "none";
+    btn.style.borderColor = "";
+    btn.classList.remove('listening');
+
+    switch (state) {
+        case 'IDLE':
+            btn.innerText = "Hold SPACE to Speak";
+            btn.style.background = "";
+            btn.disabled = false;
+            break;
+        case 'LISTENING':
+            btn.innerText = conversationMode ? "Listening (Auto)..." : "Listening...";
+            btn.classList.add('listening');
+            btn.style.background = "#ff4b4b"; 
+            btn.disabled = false;
+            startVisualizer(btn);
+            break;
+        case 'THINKING':
+            btn.innerText = "Thinking...";
+            btn.style.background = "#555"; 
+            btn.style.color = "#ddd";
+            btn.disabled = true;
+            break;
+        case 'SPEAKING':
+            btn.innerText = "AI Speaking...";
+            btn.style.background = "#222"; 
+            btn.style.color = "#fff";
+            btn.disabled = true;
+            break;
+        case 'ERROR':
+            btn.innerText = "??";
+            btn.style.background = "darkred";
+            break;
+    }
+}
+
+function startVisualizer(btn) {
+    if (!micAnalyser) return;
+    micVisualizerInterval = setInterval(() => {
+        micAnalyser.getByteFrequencyData(micDataArray);
+        let sum = 0;
+        for(let i=0; i<micDataArray.length; i++) sum += micDataArray[i];
+        let avg = sum / micDataArray.length;
+        let glow = Math.min(255, avg * 2.5);
+        if (btn.innerText.includes("Listening")) {
+            btn.style.boxShadow = `0 0 ${avg}px rgb(${255-glow}, ${glow + 50}, 50)`;
+            btn.style.borderColor = `rgb(${255-glow}, ${glow + 50}, 50)`;
+        }
+    }, 50);
+}
+
+// --- MICROPHONE SETUP ---
 function initMicrophone() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         const btn = document.getElementById('mic-btn');
@@ -12,7 +78,6 @@ function initMicrophone() {
         return;
     }
 
-    // Determine Supported MimeType
     let mimeType = 'audio/webm';
     if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         mimeType = 'audio/webm;codecs=opus';
@@ -22,7 +87,6 @@ function initMicrophone() {
         .then(stream => {
             mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
             
-            // Visualizer Setup (To check if mic is hot)
             const micCtx = new (window.AudioContext || window.webkitAudioContext)();
             const source = micCtx.createMediaStreamSource(stream);
             micAnalyser = micCtx.createAnalyser();
@@ -41,58 +105,56 @@ function initMicrophone() {
         .catch(err => {
             console.error("Mic Error:", err);
             const btn = document.getElementById('mic-btn');
-            if(btn) btn.innerText = "Mic Error (Check Console)";
+            if(btn) btn.innerText = "Mic Error";
         });
 }
 
 function handleRecordingStop(mimeType) {
     const audioBlob = new Blob(audioChunks, { type: mimeType });
-    
-    // Only send if audio is substantial (> 1kb)
-    if (audioBlob.size > 1000) { 
-        console.log(`🎤 Sending Audio: ${audioBlob.size} bytes`);
-        socket.emit('audio_stream', audioBlob);
-    } else {
-        console.warn("🎤 Audio too short. Ignored.");
-    }
-    
     audioChunks = []; 
-    
-    const btn = document.getElementById('mic-btn');
-    if(btn) {
-        btn.innerText = "Processing...";
-        btn.classList.remove('listening');
-        btn.style.boxShadow = "none";
-        btn.style.borderColor = "";
+    isRecording = false; 
+
+    // Ignore short audio (< 0.8s)
+    if (audioBlob.size < 25000) {
+        console.warn(`⚠️ Short audio ignored (${audioBlob.size}b)`);
+        if (conversationMode && !isSpeaking && !isServerGenerating) {
+            startRecording();
+        } else {
+            setButtonState('IDLE');
+        }
+        return;
     }
+
+    console.log(`🎤 Sending ${audioBlob.size} bytes`);
     
-    clearInterval(micVisualizerInterval);
+    // LOCK THE UI
+    isServerGenerating = true; 
+    setButtonState('THINKING');
+    
+    socket.emit('audio_stream', audioBlob);
 }
 
 function startRecording() {
     ensureAudioContext();
+    
+    // STRICT LOCKS
+    if (isSpeaking) { console.log("🛑 Blocked: AI Speaking"); return; }
+    if (isServerGenerating) { console.log("🛑 Blocked: AI Generating"); return; }
+
     if (mediaRecorder && mediaRecorder.state === "inactive") {
         audioChunks = [];
-        mediaRecorder.start(100); // 100ms chunks
-        
-        const btn = document.getElementById('mic-btn');
-        btn.classList.add('listening');
-        btn.innerText = "Listening...";
-        
-        // Start Visualizer Loop
-        micVisualizerInterval = setInterval(() => {
-            if(micAnalyser && btn) {
-                micAnalyser.getByteFrequencyData(micDataArray);
-                let sum = 0;
-                for(let i=0; i<micDataArray.length; i++) sum += micDataArray[i];
-                let avg = sum / micDataArray.length;
-                
-                // Green Glow Logic
-                let glow = Math.min(255, avg * 2);
-                btn.style.boxShadow = `0 0 ${avg}px rgb(${255-glow}, ${glow + 50}, 50)`;
-                btn.style.borderColor = `rgb(${255-glow}, ${glow + 50}, 50)`;
-            }
-        }, 50);
+        speakingFrameCount = 0;
+        silenceFrameCount = 0;
+        recordingStartTime = Date.now();
+
+        mediaRecorder.start(100); 
+        isRecording = true; 
+        setButtonState('LISTENING');
+
+        if (conversationMode && !silenceLoopActive) {
+            silenceLoopActive = true;
+            requestAnimationFrame(silenceLoop);
+        }
     }
 }
 
@@ -102,25 +164,91 @@ function stopRecording() {
     }
 }
 
-// --- 2. PLAYBACK QUEUE ---
+// --- SILENCE DETECTION ---
+function silenceLoop() {
+    if (!conversationMode || !isRecording) {
+        silenceLoopActive = false;
+        return;
+    }
+    
+    if (isSpeaking || isServerGenerating) {
+        stopRecording();
+        return;
+    }
+
+    // Grace Period: 3.0 seconds
+    if (Date.now() - recordingStartTime < 3000) {
+        requestAnimationFrame(silenceLoop);
+        return;
+    }
+
+    if (micAnalyser) {
+        const data = new Uint8Array(micAnalyser.frequencyBinCount);
+        micAnalyser.getByteFrequencyData(data);
+        let sum = 0;
+        for(let i=0; i<data.length; i++) sum += data[i];
+        let average = sum / data.length;
+
+        if (average > 15) {
+            speakingFrameCount++; 
+            silenceFrameCount = 0; 
+        } else if (speakingFrameCount > 10) { 
+            silenceFrameCount++;
+        }
+        
+        if (silenceFrameCount > 90) { 
+            console.log("🤖 Silence Auto-Stop");
+            stopRecording(); 
+        }
+    }
+    requestAnimationFrame(silenceLoop);
+}
+
+// --- PLAYBACK QUEUE ---
 let audioQueue = [];
 let isPlayingSequence = false;
 
-// Listen for incoming audio
 socket.on('speak_audio_sequence', (playlist) => {
-    // Reset Mic Button
-    const btn = document.getElementById('mic-btn');
-    if (btn) {
-        btn.innerText = "Hold SPACE to Speak";
-        btn.classList.remove('listening');
-        btn.style.boxShadow = "none";
-        btn.style.background = "";
-    }
+    isSpeaking = true;
+    stopRecording(); 
+    setButtonState('SPEAKING');
 
     if (typeof resetIdleTimer === "function") resetIdleTimer();
-    
     audioQueue = audioQueue.concat(playlist); 
     if (!isPlayingSequence) playNextInQueue();
+});
+
+// 2. SUCCESS: Server is done
+socket.on('ai_response_done', () => {
+    console.log("✅ Server finished generating.");
+    isServerGenerating = false; 
+    
+    if (!isPlayingSequence && audioQueue.length === 0) {
+        if (conversationMode) {
+             startRecording();
+        } else {
+             setButtonState('IDLE');
+        }
+    }
+});
+
+// 3. ERROR: Server failed (Fixes Softlock)
+socket.on('error', (data) => {
+    console.error("Server Error:", data);
+    
+    // CRITICAL FIX: Unlock the state!
+    isServerGenerating = false; 
+    
+    setButtonState('ERROR');
+
+    // Auto-recover after 2 seconds
+    setTimeout(() => {
+        if (conversationMode) {
+            startRecording();
+        } else {
+            setButtonState('IDLE');
+        }
+    }, 2000);
 });
 
 function playNextInQueue() {
@@ -128,54 +256,53 @@ function playNextInQueue() {
     
     if (audioQueue.length === 0) {
         isPlayingSequence = false;
+        isSpeaking = false; 
+
+        if (isServerGenerating) {
+            setButtonState('THINKING');
+            return;
+        }
+
+        if (conversationMode) {
+            setTimeout(() => { startRecording(); }, 200);
+        } else {
+            setButtonState('IDLE');
+        }
         return;
     }
 
     isPlayingSequence = true;
+    isSpeaking = true;
     const currentItem = audioQueue.shift(); 
 
-    // Show Text
     if (currentItem.text) {
         const t = document.getElementById('response-text');
-        if(t) {
-            t.innerText = currentItem.text; 
-            t.style.display = 'block';
-        }
+        if(t) { t.innerText = currentItem.text; t.style.display = 'block'; }
     }
-    
-    // Trigger Face
-    if (currentItem.emotion) {
-        triggerExp(currentItem.emotion);
-    }
+    if (currentItem.emotion) triggerExp(currentItem.emotion);
 
-    // Play Audio
     if (currentItem.audio) {
         const audio = new Audio(currentItem.audio);
         audio.crossOrigin = 'anonymous';
-        
         if(audioContext) {
             const source = audioContext.createMediaElementSource(audio);
-            // Connect to Visuals (Lips) AND Speakers
-            source.connect(analyser);
-            source.connect(audioContext.destination);
+            source.connect(analyser); 
+            source.connect(audioContext.destination); 
         }
-        
-        audio.play().catch(e => console.error("Playback failed:", e));
-        isSpeaking = true;
-        
+        audio.play().catch(console.error);
         audio.onended = () => {
-            isSpeaking = false;
-            // Ask server to delete file
             socket.emit('delete_audio', { filename: currentItem.audio });
-            
-            // Small pause before next sentence
-            setTimeout(() => { playNextInQueue(); }, 200); 
+            setTimeout(() => { playNextInQueue(); }, 150); 
         };
     } else {
-        // Fallback for text-only
-        setTimeout(() => { playNextInQueue(); }, 1000);
+        setTimeout(() => { playNextInQueue(); }, 1500);
     }
 }
 
-// Initialize Mic on Load
+// EXPORT TO WINDOW (Allows UI Handler to see these)
+window.startRecording = startRecording;
+window.stopRecording = stopRecording;
+window.setButtonState = setButtonState;
+window.initMicrophone = initMicrophone;
+
 window.addEventListener('load', initMicrophone);

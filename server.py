@@ -148,6 +148,7 @@ def process_response(user_text):
                 if playlist:
                     socketio.emit('speak_audio_sequence', playlist, namespace='/')
         print("")
+        socketio.emit('ai_response_done', namespace='/')
 
 @socketio.on('user_message')
 def handle_message(data):
