@@ -8,6 +8,7 @@ import json
 import os
 import re
 from skills import extract_and_read_file, open_application
+from config import TEST_MODE  # Import the flag
 
 # --- 1. NEW PERSONALITY RULES (Makes her talkative) ---
 PERSONALITY_INSTRUCTIONS = """
@@ -52,7 +53,6 @@ except ImportError:
 FULL_SYSTEM_PROMPT = SYSTEM_PROMPT + "\n" + PERSONALITY_INSTRUCTIONS + "\n" + TOOL_INSTRUCTIONS + "\n" + EMOTION_INSTRUCTIONS
 
 class CompanionBrain:
-    # --- 3. UPDATED TO LLAMA 3.1 (Better Logic) ---
     def __init__(self, model_name="llama3.1", memory_file="memory.json"):
         self.model_name = model_name
         self.memory_file = memory_file
@@ -74,6 +74,10 @@ class CompanionBrain:
         return [{"role": "system", "content": FULL_SYSTEM_PROMPT}]
 
     def _save_memory(self):
+        # TEST MODE CHECK: Do not save if enabled
+        if TEST_MODE:
+            return 
+            
         with open(self.memory_file, 'w') as f:
             json.dump(self.messages, f, indent=4)
 

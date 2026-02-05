@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 # IMPORT CONFIGURATION
-from config import EMOTION_MAP, SOUND_BANK, BREATH_SOUNDS, FILLERS, PHONETIC_MAP
+from config import EMOTION_MAP, SOUND_BANK, BREATH_SOUNDS, PHONETIC_MAP, TEST_MODE
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
@@ -28,7 +28,9 @@ except: stt_model = None
 try: brain = CompanionBrain(model_name="llama3.1"); print("✔ Brain Loaded.")
 except: brain = None
 
-# GLOBAL TIMESTAMP (Lag Fix)
+if TEST_MODE:
+    print("\n⚠️  WARNING: TEST MODE IS ON. Memory will not be saved. ⚠️\n")
+
 last_request_time = 0  
 
 @app.route('/')
@@ -43,9 +45,9 @@ def generate_kokoro_audio(text, filename):
         return f"/static/audio/{filename}"
     except Exception as e: return None
 
-# --- TEXT CLEANING ---
 def clean_for_speech(text):
-    # Uses dictionary from config.py
+    # Nuke multiple dots/dashes
+    text = re.sub(r'[\.\-]+', '.', text)
     for word, replacement in PHONETIC_MAP.items():
         text = re.sub(r'\b' + re.escape(word) + r'\b', replacement, text, flags=re.IGNORECASE)
     return text
@@ -61,14 +63,7 @@ def process_response(user_text, my_start_time):
         buffer = ""
         current_emotion = None 
         
-        # --- INSTANT FILLER (30% Chance) ---
-        if random.random() < 0.3:
-            if my_start_time < last_request_time: return
-            # Uses FILLERS from config.py
-            filler = random.choice(FILLERS)
-            filler_url = generate_kokoro_audio(filler, f"filler_{int(time.time())}.wav")
-            if filler_url:
-                socketio.emit('speak_audio_sequence', [{'text': "...", 'audio': filler_url, 'emotion': "Thinking"}], namespace='/')
+        # NO FILLERS HERE
 
         for chunk in brain.stream_response(user_text):
             if my_start_time < last_request_time: return 
@@ -87,35 +82,25 @@ def process_response(user_text, my_start_time):
                     sentence = sentence.strip()
                     if not sentence: continue
                     
-                    # 1. EMOTION PARSING (Uses EMOTION_MAP from config)
                     for key, val in EMOTION_MAP.items():
                         if key in sentence.lower(): current_emotion = val
                     
-                    # 2. CLEAN TEXT
                     audio_text = re.sub(r'[\*\[].*?[\*\]]', '', sentence)
                     audio_text = re.sub(r'[^\w\s,.!?;:\']', '', audio_text).strip()
-                    if not audio_text: continue
+                    
+                    # Ghost Buster: Skip text with no letters/numbers
+                    if not any(c.isalnum() for c in audio_text): continue
+
                     audio_text = clean_for_speech(audio_text)
 
-                    # 3. INJECT SOUNDS (Uses SOUND_BANK from config)
-                    
-                    # A. Emotional Reaction
                     if current_emotion in SOUND_BANK and random.random() < 0.4:
                         sound = random.choice(SOUND_BANK[current_emotion])
                         audio_text = f"{sound} {audio_text}"
                     
-                    # B. Breathing Engine
-                    elif len(audio_text.split()) > 6 and random.random() < 0.3:
+                    elif len(audio_text.split()) > 8 and random.random() < 0.2:
                         breath = random.choice(BREATH_SOUNDS)
                         audio_text = f"{breath} {audio_text}"
 
-                    # C. Conversation Fillers
-                    elif random.random() < 0.15:
-                         # Mix Hesitation & Agreement from config
-                         filler = random.choice(SOUND_BANK["Hesitation"] + SOUND_BANK["Agreement"])
-                         audio_text = f"{filler} {audio_text}"
-
-                    # 4. GENERATE
                     filename = f"seq_{int(time.time())}_{len(playlist)}.wav"
                     audio_url = generate_kokoro_audio(audio_text, filename)
                     
@@ -137,6 +122,7 @@ def handle_message(data):
 
 @socketio.on('audio_stream')
 def handle_audio_stream(audio_data):
+    print(f">> 🎤 [Server] Receiving Audio ({len(audio_data)} bytes)...")
     global last_request_time
     last_request_time = time.time() 
     
@@ -151,15 +137,17 @@ def handle_audio_stream(audio_data):
         os.remove(temp_path)
         
         if text:
+            print(f"🎤 Heard: {text}")
             socketio.start_background_task(process_response, text, last_request_time)
         else:
+            print("🎤 Heard Silence.")
             emit('error', {'message': "???"})
     except: pass
 
 @socketio.on('interrupt_signal')
 def handle_interrupt():
     global last_request_time
-    last_request_time = time.time() # Kill current task
+    last_request_time = time.time()
     print("--- INTERRUPT SIGNAL ---")
 
 @socketio.on('delete_audio')

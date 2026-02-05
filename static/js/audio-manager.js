@@ -1,17 +1,21 @@
 // FILE: static/js/audio-manager.js
 
+// --- CONFIGURATION ---
+const SILENCE_THRESHOLD = 15; // Volume level to consider "Silence" (0-255)
+const SILENCE_DURATION = 1000; // How long to wait after speech stops (ms)
+const MAX_RECORD_TIME = 8000; // Force stop after 8 seconds
+
 // --- VARIABLES ---
-let mediaRecorder;
+let mediaRecorder = null;
+let globalStream = null;
 let audioChunks = [];
 let micAnalyser, micDataArray, micVisualizerInterval;
 
 // State Variables
-let speakingFrameCount = 0;
-let silenceFrameCount = 0;
+let lastSpeechTime = 0;
 let recordingStartTime = 0;
-let silenceLoopActive = false;
-
-// NOTE: Uses globals from globals.js
+let hasSpoken = false; // Did we hear the user speak yet?
+let silenceTimerID = null;
 
 // --- UI HELPERS ---
 function setButtonState(state) {
@@ -30,7 +34,7 @@ function setButtonState(state) {
             btn.disabled = false;
             break;
         case 'LISTENING':
-            btn.innerText = window.conversationMode ? "Listening (Auto)..." : "Listening...";
+            btn.innerText = window.conversationMode ? "Listening..." : "Listening...";
             btn.classList.add('listening');
             btn.style.background = "#ff4b4b"; 
             btn.disabled = false;
@@ -58,6 +62,8 @@ function startVisualizer(btn) {
         let sum = 0;
         for(let i=0; i<micDataArray.length; i++) sum += micDataArray[i];
         let avg = sum / micDataArray.length;
+        
+        // Visual Glow
         let glow = Math.min(255, avg * 2.5);
         if (btn.innerText.includes("Listening")) {
             btn.style.boxShadow = `0 0 ${avg}px rgb(${255-glow}, ${glow + 50}, 50)`;
@@ -70,92 +76,149 @@ function startVisualizer(btn) {
 function initMicrophone() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
 
-    let mimeType = 'audio/webm';
-    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-    }
-
     navigator.mediaDevices.getUserMedia({ audio: true })
         .then(stream => {
-            mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+            globalStream = stream;
             
             const micCtx = new (window.AudioContext || window.webkitAudioContext)();
             const source = micCtx.createMediaStreamSource(stream);
             micAnalyser = micCtx.createAnalyser();
-            micAnalyser.fftSize = 64;
+            micAnalyser.fftSize = 64; // Low detail for performance
             source.connect(micAnalyser);
             micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
-
-            mediaRecorder.ondataavailable = event => {
-                if (event.data.size > 0) audioChunks.push(event.data);
-            };
-
-            mediaRecorder.onstop = () => {
-                handleRecordingStop(mimeType);
-            };
+            
+            console.log("🎤 Microphone Connected & Ready");
         })
         .catch(console.error);
 }
 
-function handleRecordingStop(mimeType) {
-    const audioBlob = new Blob(audioChunks, { type: mimeType });
-    audioChunks = []; 
-    window.isRecording = false; 
-
-    // Ignore tiny audio
-    if (audioBlob.size < 5000) {
-        if (window.conversationMode && !window.isSpeaking) {
-             startRecording();
-        } else {
-             setButtonState('IDLE');
-        }
-        return;
-    }
-
-    console.log(`🎤 Sending ${audioBlob.size} bytes`);
-    window.isServerGenerating = true; 
-    setButtonState('THINKING');
-    socket.emit('audio_stream', audioBlob);
-}
+// --- RECORDING LOGIC ---
 
 function startRecording() {
     ensureAudioContext();
     
-    // Interrupt if speaking
+    // Safety: Don't start if AI is processing
+    if (window.isServerGenerating) {
+        console.warn("⚠️ Cannot listen: AI is thinking.");
+        return;
+    }
+    
+    // Interrupt: If AI is talking, shut it up
     if (window.isSpeaking) {
         forceStopPlayback();
         socket.emit('interrupt_signal');
     }
 
-    if (window.isServerGenerating) return;
+    if (!globalStream) {
+        console.error("❌ No Microphone Stream!");
+        initMicrophone(); // Try to reconnect
+        return;
+    }
 
-    if (mediaRecorder && mediaRecorder.state === "inactive") {
-        audioChunks = [];
-        speakingFrameCount = 0;
-        silenceFrameCount = 0;
-        recordingStartTime = Date.now();
+    // 1. CLEANUP OLD RECORDER
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
 
-        mediaRecorder.start(100); 
-        window.isRecording = true; 
-        setButtonState('LISTENING');
+    // 2. SETUP NEW RECORDER
+    let mimeType = 'audio/webm';
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+    }
 
-        if (window.conversationMode && !silenceLoopActive) {
-            silenceLoopActive = true;
-            requestAnimationFrame(silenceLoop);
+    mediaRecorder = new MediaRecorder(globalStream, { mimeType: mimeType });
+    audioChunks = [];
+
+    mediaRecorder.ondataavailable = event => {
+        if (event.data.size > 0) audioChunks.push(event.data);
+    };
+
+    mediaRecorder.onstop = () => {
+        // This runs when we explicitly call .stop()
+        const audioBlob = new Blob(audioChunks, { type: mimeType });
+        console.log(`📦 Recording Stopped. Size: ${audioBlob.size} bytes`);
+        
+        // Only send if we actually have data and it's not microscopic
+        if (audioBlob.size > 500) {
+            window.isServerGenerating = true; 
+            setButtonState('THINKING');
+            socket.emit('audio_stream', audioBlob);
+        } else {
+            console.warn("⚠️ Audio too short/empty. Ignoring.");
+            // If in auto mode, try listening again shortly
+            if(window.conversationMode) setTimeout(startRecording, 500);
+            else setButtonState('IDLE');
         }
+    };
+
+    // 3. RESET STATE
+    recordingStartTime = Date.now();
+    lastSpeechTime = Date.now(); // Reset timer to now
+    hasSpoken = false;
+    window.isRecording = true;
+    setButtonState('LISTENING');
+
+    mediaRecorder.start(100); 
+
+    // 4. START MONITORING LOOP
+    if (window.conversationMode) {
+        console.log("👂 Auto-Listening Started...");
+        cancelAnimationFrame(silenceTimerID);
+        silenceTimerID = requestAnimationFrame(monitorSilence);
     }
 }
 
 function stopRecording() {
     if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
+        window.isRecording = false;
+        cancelAnimationFrame(silenceTimerID);
     }
+}
+
+// --- NEW MONITORING LOGIC (Time-Based) ---
+function monitorSilence() {
+    if (!window.isRecording || !window.conversationMode) return;
+
+    // A. Check Volume
+    let currentVolume = 0;
+    if (micAnalyser) {
+        micAnalyser.getByteFrequencyData(micDataArray);
+        let sum = 0;
+        for(let i=0; i<micDataArray.length; i++) sum += micDataArray[i];
+        currentVolume = sum / micDataArray.length;
+    }
+
+    const now = Date.now();
+
+    // B. Logic
+    if (currentVolume > SILENCE_THRESHOLD) {
+        // User is talking
+        if (!hasSpoken) console.log("🗣️ Speech Detected!");
+        hasSpoken = true;
+        lastSpeechTime = now; // Reset the "silence clock"
+    }
+
+    // C. Check for Silence Timeout (Only if they have spoken already)
+    if (hasSpoken && (now - lastSpeechTime > SILENCE_DURATION)) {
+        console.log("🤫 Silence detected (1s). Stopping.");
+        stopRecording();
+        return;
+    }
+
+    // D. Check for Max Duration (Force stop after 8s even if noisy)
+    if (now - recordingStartTime > MAX_RECORD_TIME) {
+        console.log("⏰ Max recording time reached.");
+        stopRecording();
+        return;
+    }
+
+    silenceTimerID = requestAnimationFrame(monitorSilence);
 }
 
 function forceStopPlayback() {
     if (window.currentAudioObj) {
         window.currentAudioObj.pause();
-        window.currentAudioObj.currentTime = 0;
         window.currentAudioObj = null;
     }
     audioQueue = [];
@@ -164,54 +227,7 @@ function forceStopPlayback() {
     window.isServerGenerating = false;
 }
 
-// --- TUNED SILENCE DETECTION ---
-function silenceLoop() {
-    if (!window.conversationMode || !window.isRecording) {
-        silenceLoopActive = false;
-        return;
-    }
-
-    const duration = Date.now() - recordingStartTime;
-
-    // Safety: Stop after 8 seconds (was 10)
-    if (duration > 8000) {
-        stopRecording();
-        return;
-    }
-
-    // Grace Period: 1.0 second (was 2.5)
-    if (duration < 1000) {
-        requestAnimationFrame(silenceLoop);
-        return;
-    }
-
-    if (micAnalyser) {
-        const data = new Uint8Array(micAnalyser.frequencyBinCount);
-        micAnalyser.getByteFrequencyData(data);
-        let sum = 0;
-        for(let i=0; i<data.length; i++) sum += data[i];
-        let average = sum / data.length;
-
-        // TUNED THRESHOLDS:
-        // Increased from 15 to 25 to ignore PC fans/breathing
-        if (average > 25) {
-            speakingFrameCount++; 
-            silenceFrameCount = 0; 
-        } else if (speakingFrameCount > 5) { 
-            silenceFrameCount++;
-        }
-        
-        // CUTOFF:
-        // Reduced from 90 to 45 (0.7 seconds silence)
-        if (silenceFrameCount > 45) { 
-            console.log("🤖 Silence Auto-Stop");
-            stopRecording(); 
-        }
-    }
-    requestAnimationFrame(silenceLoop);
-}
-
-// --- PLAYBACK QUEUE ---
+// --- PLAYBACK ---
 let audioQueue = [];
 let isPlayingSequence = false;
 window.currentAudioObj = null;
@@ -220,65 +236,77 @@ socket.on('speak_audio_sequence', (playlist) => {
     if (window.isRecording) return; 
     window.isSpeaking = true;
     setButtonState('SPEAKING');
-
     audioQueue = audioQueue.concat(playlist); 
     if (!isPlayingSequence) playNextInQueue();
 });
 
 socket.on('ai_response_done', () => {
     window.isServerGenerating = false;
+    console.log("✅ AI Response Complete.");
+    
+    // Only restart listening if we are done playing audio
     if (!isPlayingSequence && audioQueue.length === 0) {
-        if (window.conversationMode) startRecording();
-        else setButtonState('IDLE');
+        if (window.conversationMode) {
+            console.log("🔄 Restarting Listener in 200ms...");
+            setTimeout(startRecording, 200);
+        } else {
+            setButtonState('IDLE');
+        }
     }
-});
-
-socket.on('error', (data) => {
-    console.error("Server Error:", data);
-    window.isServerGenerating = false; 
-    setButtonState('IDLE');
-    if (window.conversationMode) setTimeout(() => startRecording(), 2000);
 });
 
 function playNextInQueue() {
     ensureAudioContext();
     if (audioQueue.length === 0) {
         isPlayingSequence = false;
-        window.isSpeaking = false; 
-        if (window.isServerGenerating) setButtonState('THINKING');
-        else if (window.conversationMode) setTimeout(() => startRecording(), 200);
-        else setButtonState('IDLE');
+        window.isSpeaking = false;
+        
+        // If the AI is done generating AND done speaking -> Listen again
+        if (!window.isServerGenerating) {
+            if (window.conversationMode) {
+                setTimeout(startRecording, 200);
+            } else {
+                setButtonState('IDLE');
+            }
+        }
         return;
     }
+
     isPlayingSequence = true;
     window.isSpeaking = true;
     const currentItem = audioQueue.shift(); 
 
+    // UI Updates
     if (currentItem.text) {
         const t = document.getElementById('response-text');
         if(t) { t.innerText = currentItem.text; t.style.display = 'block'; }
     }
     if (currentItem.emotion) triggerExp(currentItem.emotion);
 
+    // Audio Playback
     if (currentItem.audio) {
         const audio = new Audio(currentItem.audio);
         audio.crossOrigin = 'anonymous';
         window.currentAudioObj = audio; 
+        
+        // Lip Sync Connect
         if(audioContext) {
             const source = audioContext.createMediaElementSource(audio);
             source.connect(analyser); 
             source.connect(audioContext.destination); 
         }
+
         audio.play().catch(console.error);
         audio.onended = () => {
             socket.emit('delete_audio', { filename: currentItem.audio });
-            setTimeout(() => { playNextInQueue(); }, 150); 
+            playNextInQueue();
         };
     } else {
-        setTimeout(() => { playNextInQueue(); }, 1500);
+        setTimeout(playNextInQueue, 100);
     }
 }
 
+// --- INIT ---
 window.startRecording = startRecording;
 window.stopRecording = stopRecording;
 window.initMicrophone = initMicrophone;
