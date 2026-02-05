@@ -14,6 +14,17 @@ app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 audio_folder = os.path.join("static", "audio")
+if os.path.exists(audio_folder):
+    for f in os.listdir(audio_folder):
+        if f.endswith(".wav"):
+            try:
+                os.remove(os.path.join(audio_folder, f))
+            except Exception as e:
+                print(f"Could not delete old file {f}: {e}")
+else:
+    os.makedirs(audio_folder)
+
+audio_folder = os.path.join("static", "audio")
 if not os.path.exists(audio_folder):
     os.makedirs(audio_folder)
 
@@ -161,6 +172,23 @@ def process_response(user_text):
                     socketio.emit('speak_audio_sequence', playlist, namespace='/')
         
         print("")
+
+@socketio.on('delete_audio')
+def handle_delete_audio(data):
+    filename_url = data.get('filename')
+    if not filename_url:
+        return
+
+    # Security: Extract just the filename to prevent hacking (e.g., "../server.py")
+    clean_name = os.path.basename(filename_url) 
+    file_path = os.path.join(audio_folder, clean_name)
+
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            # print(f"🗑 Cleaned up: {clean_name}") # Uncomment to see it happen
+        except Exception as e:
+            print(f"Error deleting file: {e}")
 
 @socketio.on('user_message')
 def handle_message(data):

@@ -145,26 +145,45 @@ function animateLive2D(model, time, isSpeaking) {
     } catch (e) { }
 }
 
+let currentMouthForm = 0;
+
 function animateMouthLive2D(model, analyser, dataArray, isSpeaking) {
     if (!model || !model.internalModel) return;
+
     let targetOpenness = 0;
+    let targetForm = 0; 
+
     if (isSpeaking && analyser) {
         analyser.getByteFrequencyData(dataArray);
-        let low = dataArray[5];
-        let mid = dataArray[15];
-        let high = dataArray[30];
-        let energy = (low + mid + high) / 3;
-        let pulse = (Math.sin(Date.now() / 60) * 0.2) + 0.8; 
-        targetOpenness = (energy / 80) * pulse;
+        let sum = 0;
+        let len = Math.min(dataArray.length, 40); 
+        for(let i = 0; i < len; i++) sum += dataArray[i];
+        let average = sum / len;
+        let rawVolume = Math.max(0, average - 20) / 40; 
+        targetOpenness = rawVolume * rawVolume * 1.5; 
+
+        if (targetOpenness < 0.15) targetOpenness = 0;
         if (targetOpenness > 1.0) targetOpenness = 1.0;
-        if (targetOpenness < 0.1) targetOpenness = 0; 
+        if (targetOpenness > 0.3) targetForm = 0.3;
+
+    } else {
+        targetOpenness = 0;
+        targetForm = 0;
     }
-    let lerpFactor = (targetOpenness > currentMouth) ? 0.5 : 0.1;
-    currentMouth += (targetOpenness - currentMouth) * lerpFactor;
-    try { 
-        model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', currentMouth); 
-        let form = currentMouth * 0.5;
-        model.internalModel.coreModel.setParameterValueById('ParamMouthForm', form);
+
+    let closeSpeed = 0.9;
+    let openSpeed = 0.8;
+    
+    let speed = (targetOpenness > currentMouth) ? openSpeed : closeSpeed;
+    currentMouth += (targetOpenness - currentMouth) * speed;
+
+    currentMouthForm += (targetForm - currentMouthForm) * 0.2;
+
+    try {
+        const core = model.internalModel.coreModel;
+        
+        core.setParameterValueById('ParamMouthOpenY', currentMouth);
+        core.setParameterValueById('ParamMouthForm', currentMouthForm);
     } catch (e) {}
 }
 

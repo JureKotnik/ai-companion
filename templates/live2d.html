@@ -280,9 +280,17 @@ let mediaRecorder;
             audio.play();
             isSpeaking = true;
             audio.onended = () => {
-                isSpeaking = false;
-                playNextInQueue(); 
-            };
+            // 1. TELL SERVER TO DELETE THE FILE
+            // We send the filename we just finished listening to
+            socket.emit('delete_audio', { filename: currentItem.audio });
+
+            isPlayingSequence = false;
+            
+            // 2. Small delay before next sentence (makes it sound natural)
+            setTimeout(() => {
+                playNextInQueue();
+            }, 200); 
+          };
         } else {
             setTimeout(() => { playNextInQueue(); }, 1000);
         }
