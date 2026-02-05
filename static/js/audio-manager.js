@@ -1,19 +1,19 @@
 // FILE: static/js/audio-manager.js
 
-// --- LOCAL VARIABLES (Internal use only) ---
+// --- VARIABLES ---
 let mediaRecorder;
 let audioChunks = [];
 let micAnalyser, micDataArray, micVisualizerInterval;
 
-// Silence Detection Counters
+// State Variables
 let speakingFrameCount = 0;
 let silenceFrameCount = 0;
 let recordingStartTime = 0;
 let silenceLoopActive = false;
 
-// NOTE: isRecording, isSpeaking, etc. are now inherited from globals.js
+// NOTE: Uses globals from globals.js
 
-// --- UI HELPER: BUTTON STATE ---
+// --- UI HELPERS ---
 function setButtonState(state) {
     const btn = document.getElementById('mic-btn');
     if (!btn) return;
@@ -30,7 +30,7 @@ function setButtonState(state) {
             btn.disabled = false;
             break;
         case 'LISTENING':
-            btn.innerText = conversationMode ? "Listening (Auto)..." : "Listening...";
+            btn.innerText = window.conversationMode ? "Listening (Auto)..." : "Listening...";
             btn.classList.add('listening');
             btn.style.background = "#ff4b4b"; 
             btn.disabled = false;
@@ -43,14 +43,10 @@ function setButtonState(state) {
             btn.disabled = true;
             break;
         case 'SPEAKING':
-            btn.innerText = "AI Speaking...";
+            btn.innerText = "Space to Interrupt";
             btn.style.background = "#222"; 
             btn.style.color = "#fff";
-            btn.disabled = true;
-            break;
-        case 'ERROR':
-            btn.innerText = "??";
-            btn.style.background = "darkred";
+            btn.disabled = false; 
             break;
     }
 }
@@ -72,11 +68,7 @@ function startVisualizer(btn) {
 
 // --- MICROPHONE SETUP ---
 function initMicrophone() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        const btn = document.getElementById('mic-btn');
-        if(btn) btn.innerText = "Mic Not Supported";
-        return;
-    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
 
     let mimeType = 'audio/webm';
     if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
@@ -102,44 +94,40 @@ function initMicrophone() {
                 handleRecordingStop(mimeType);
             };
         })
-        .catch(err => {
-            console.error("Mic Error:", err);
-            const btn = document.getElementById('mic-btn');
-            if(btn) btn.innerText = "Mic Error";
-        });
+        .catch(console.error);
 }
 
 function handleRecordingStop(mimeType) {
     const audioBlob = new Blob(audioChunks, { type: mimeType });
     audioChunks = []; 
-    isRecording = false; 
+    window.isRecording = false; 
 
-    // Ignore short audio (< 0.8s)
-    if (audioBlob.size < 25000) {
-        console.warn(`⚠️ Short audio ignored (${audioBlob.size}b)`);
-        if (conversationMode && !isSpeaking && !isServerGenerating) {
-            startRecording();
+    // Ignore tiny audio
+    if (audioBlob.size < 5000) {
+        if (window.conversationMode && !window.isSpeaking) {
+             startRecording();
         } else {
-            setButtonState('IDLE');
+             setButtonState('IDLE');
         }
         return;
     }
 
     console.log(`🎤 Sending ${audioBlob.size} bytes`);
-    
-    // LOCK THE UI
-    isServerGenerating = true; 
+    window.isServerGenerating = true; 
     setButtonState('THINKING');
-    
     socket.emit('audio_stream', audioBlob);
 }
 
 function startRecording() {
     ensureAudioContext();
     
-    // STRICT LOCKS
-    if (isSpeaking) { console.log("🛑 Blocked: AI Speaking"); return; }
-    if (isServerGenerating) { console.log("🛑 Blocked: AI Generating"); return; }
+    // Interrupt if speaking
+    if (window.isSpeaking) {
+        forceStopPlayback();
+        socket.emit('interrupt_signal');
+    }
+
+    if (window.isServerGenerating) return;
 
     if (mediaRecorder && mediaRecorder.state === "inactive") {
         audioChunks = [];
@@ -148,10 +136,10 @@ function startRecording() {
         recordingStartTime = Date.now();
 
         mediaRecorder.start(100); 
-        isRecording = true; 
+        window.isRecording = true; 
         setButtonState('LISTENING');
 
-        if (conversationMode && !silenceLoopActive) {
+        if (window.conversationMode && !silenceLoopActive) {
             silenceLoopActive = true;
             requestAnimationFrame(silenceLoop);
         }
@@ -164,20 +152,35 @@ function stopRecording() {
     }
 }
 
-// --- SILENCE DETECTION ---
+function forceStopPlayback() {
+    if (window.currentAudioObj) {
+        window.currentAudioObj.pause();
+        window.currentAudioObj.currentTime = 0;
+        window.currentAudioObj = null;
+    }
+    audioQueue = [];
+    isPlayingSequence = false;
+    window.isSpeaking = false;
+    window.isServerGenerating = false;
+}
+
+// --- TUNED SILENCE DETECTION ---
 function silenceLoop() {
-    if (!conversationMode || !isRecording) {
+    if (!window.conversationMode || !window.isRecording) {
         silenceLoopActive = false;
         return;
     }
-    
-    if (isSpeaking || isServerGenerating) {
+
+    const duration = Date.now() - recordingStartTime;
+
+    // Safety: Stop after 8 seconds (was 10)
+    if (duration > 8000) {
         stopRecording();
         return;
     }
 
-    // Grace Period: 3.0 seconds
-    if (Date.now() - recordingStartTime < 3000) {
+    // Grace Period: 1.0 second (was 2.5)
+    if (duration < 1000) {
         requestAnimationFrame(silenceLoop);
         return;
     }
@@ -189,14 +192,18 @@ function silenceLoop() {
         for(let i=0; i<data.length; i++) sum += data[i];
         let average = sum / data.length;
 
-        if (average > 15) {
+        // TUNED THRESHOLDS:
+        // Increased from 15 to 25 to ignore PC fans/breathing
+        if (average > 25) {
             speakingFrameCount++; 
             silenceFrameCount = 0; 
-        } else if (speakingFrameCount > 10) { 
+        } else if (speakingFrameCount > 5) { 
             silenceFrameCount++;
         }
         
-        if (silenceFrameCount > 90) { 
+        // CUTOFF:
+        // Reduced from 90 to 45 (0.7 seconds silence)
+        if (silenceFrameCount > 45) { 
             console.log("🤖 Silence Auto-Stop");
             stopRecording(); 
         }
@@ -207,72 +214,44 @@ function silenceLoop() {
 // --- PLAYBACK QUEUE ---
 let audioQueue = [];
 let isPlayingSequence = false;
+window.currentAudioObj = null;
 
 socket.on('speak_audio_sequence', (playlist) => {
-    isSpeaking = true;
-    stopRecording(); 
+    if (window.isRecording) return; 
+    window.isSpeaking = true;
     setButtonState('SPEAKING');
 
-    if (typeof resetIdleTimer === "function") resetIdleTimer();
     audioQueue = audioQueue.concat(playlist); 
     if (!isPlayingSequence) playNextInQueue();
 });
 
-// 2. SUCCESS: Server is done
 socket.on('ai_response_done', () => {
-    console.log("✅ Server finished generating.");
-    isServerGenerating = false; 
-    
+    window.isServerGenerating = false;
     if (!isPlayingSequence && audioQueue.length === 0) {
-        if (conversationMode) {
-             startRecording();
-        } else {
-             setButtonState('IDLE');
-        }
+        if (window.conversationMode) startRecording();
+        else setButtonState('IDLE');
     }
 });
 
-// 3. ERROR: Server failed (Fixes Softlock)
 socket.on('error', (data) => {
     console.error("Server Error:", data);
-    
-    // CRITICAL FIX: Unlock the state!
-    isServerGenerating = false; 
-    
-    setButtonState('ERROR');
-
-    // Auto-recover after 2 seconds
-    setTimeout(() => {
-        if (conversationMode) {
-            startRecording();
-        } else {
-            setButtonState('IDLE');
-        }
-    }, 2000);
+    window.isServerGenerating = false; 
+    setButtonState('IDLE');
+    if (window.conversationMode) setTimeout(() => startRecording(), 2000);
 });
 
 function playNextInQueue() {
     ensureAudioContext();
-    
     if (audioQueue.length === 0) {
         isPlayingSequence = false;
-        isSpeaking = false; 
-
-        if (isServerGenerating) {
-            setButtonState('THINKING');
-            return;
-        }
-
-        if (conversationMode) {
-            setTimeout(() => { startRecording(); }, 200);
-        } else {
-            setButtonState('IDLE');
-        }
+        window.isSpeaking = false; 
+        if (window.isServerGenerating) setButtonState('THINKING');
+        else if (window.conversationMode) setTimeout(() => startRecording(), 200);
+        else setButtonState('IDLE');
         return;
     }
-
     isPlayingSequence = true;
-    isSpeaking = true;
+    window.isSpeaking = true;
     const currentItem = audioQueue.shift(); 
 
     if (currentItem.text) {
@@ -284,6 +263,7 @@ function playNextInQueue() {
     if (currentItem.audio) {
         const audio = new Audio(currentItem.audio);
         audio.crossOrigin = 'anonymous';
+        window.currentAudioObj = audio; 
         if(audioContext) {
             const source = audioContext.createMediaElementSource(audio);
             source.connect(analyser); 
@@ -299,10 +279,8 @@ function playNextInQueue() {
     }
 }
 
-// EXPORT TO WINDOW (Allows UI Handler to see these)
 window.startRecording = startRecording;
 window.stopRecording = stopRecording;
-window.setButtonState = setButtonState;
 window.initMicrophone = initMicrophone;
-
+window.setButtonState = setButtonState;
 window.addEventListener('load', initMicrophone);
