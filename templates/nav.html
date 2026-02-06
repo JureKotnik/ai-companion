@@ -1,40 +1,46 @@
 <div class="navbar">
     
     <div class="nav-left">
-        <a href="/3d" class="nav-btn">
-            🧊 Switch to 3D
+        <a href="/3d" class="nav-btn" style="margin-right: 10px;">
+            🧊 3D MODE
         </a>
+        <button onclick="toggleZoom()" class="nav-btn" id="zoom-btn">
+            🔍 ZOOM: FULL
+        </button>
     </div>
 
     <div class="nav-right">
-        <label for="emotion-select">Expression:</label>
-        
-        <select id="emotion-select" onchange="triggerExp(this.value)">
-            <option value="Reset" selected>Neutral (Default)</option>
-            <option value="Happy">Happy 😊</option>
-            <option value="Sad">Sad 😢</option>
-            <option value="Angry">Angry 😠</option>
-            <option value="Amazed">Amazed 🤩</option>
-            <option value="Cry">Crying 😭</option>
-            <option value="Love">In Love 😍</option>
-            <option value="Nervous">Nervous 😰</option>
-            <option value="Sleepy">Sleepy 😴</option>
-            <option value="Surprised">Surprised 😲</option>
-            <option value="Smug">Smug 😏</option>
-            <option value="Embarrassed">Embarrassed 😳</option>
-            <option value="Confused">Confused 😕</option>
-            <option value="Disgusted">Disgusted 🤢</option>
-            <option value="Excited">Excited 😆</option>
-            <option value="Bored">Bored 😒</option>
-            <option value="Scared">Scared 😱</option>
-            <option value="Thinking">Thinking 🤔</option>
-            <option value="Disappointed">Disappointed 😞</option>
-            <option value="Smiling">Smiling 🙂</option>
-            <option value="Laughing">Laughing 🤣</option>
-            <option value="Wink">Wink 😉</option>
-            <option value="Determined">Determined 😤</option>
-            <option value="Sneeze">Sneeze 😷</option>
-            <option value="Shocked">Shocked 😱</option>
-        </select>
+        <div class="control-group">
+            <label for="emotion-select">EXPRESSION</label>
+            <div class="select-wrapper">
+                <select id="emotion-select" onchange="triggerExp(this.value)">
+                    <option value="Reset" selected>Neutral</option>
+                    <option value="Happy">Happy 😊</option>
+                    <option value="Sad">Sad 😢</option>
+                    <option value="Angry">Angry 😠</option>
+                    <option value="Amazed">Amazed 🤩</option>
+                    <option value="Cry">Crying 😭</option>
+                    <option value="Love">Love 😍</option>
+                    <option value="Nervous">Nervous 😰</option>
+                    <option value="Sleepy">Sleepy 😴</option>
+                    <option value="Surprised">Surprised 😲</option>
+                    <option value="Smug">Smug 😏</option>
+                    <option value="Embarrassed">Embarrassed 😳</option>
+                    <option value="Confused">Confused 😕</option>
+                    <option value="Disgusted">Disgusted 🤢</option>
+                    <option value="Excited">Excited 😆</option>
+                    <option value="Bored">Bored 😒</option>
+                    <option value="Scared">Scared 😱</option>
+                    <option value="Thinking">Thinking 🤔</option>
+                    <option value="Disappointed">Disappointed 😞</option>
+                    <option value="Smiling">Smiling 🙂</option>
+                    <option value="Laughing">Laughing 🤣</option>
+                    <option value="Wink">Wink 😉</option>
+                    <option value="Determined">Determined 😤</option>
+                    <option value="Sneeze">Sneeze 😷</option>
+                    <option value="Shocked">Shocked 😱</option>
+                </select>
+            </div>
+        </div>
     </div>
 </div>

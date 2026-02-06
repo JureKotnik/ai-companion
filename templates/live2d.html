@@ -15,7 +15,9 @@
     {% include 'nav.html' %}
 
     <canvas id="canvas"></canvas>
-    <div id="loading" style="z-index: 2000; position: absolute; color: white;">Loading Live2D...</div>
+    
+    <div id="loading">INITIALIZING NEURAL LINK...</div>
+
     <div id="response-text"></div>
 
     <div id="ui-container">
@@ -25,13 +27,15 @@
         </div>
 
         <div id="text-area" class="visible">
-            <input type="text" id="msg-input" placeholder="Type message..." autocomplete="off">
+            <input type="text" id="msg-input" placeholder="Message Astra..." autocomplete="off">
             <button class="send-btn" onclick="sendText()">SEND</button>
         </div>
 
         <div id="voice-area">
             <button id="mic-btn">Hold SPACE to Speak</button>
-            <button id="auto-mode-btn" onclick="toggleConversationMode()" style="margin-top: 10px; background: #444; color: white; border: 1px solid #666;">
+            
+            <button id="auto-mode-btn" onclick="toggleConversationMode()" 
+                style="margin-top: 5px; background: transparent; border: 1px solid #555; color: #aaa; font-size: 12px; padding: 5px 10px; border-radius: 10px;">
                 🔄 Auto-Chat: OFF
             </button>
         </div>
@@ -43,12 +47,29 @@
     <script src="/static/js/ui-handler.js"></script>
     <script src="/static/live2d/movements/movements.js"></script>
 
-
-    
-
     <script>
         window.onload = function() {
             initPixi();
+            
+            // --- AUTO-HIDE SUBTITLES ---
+            const subtitleBox = document.getElementById('response-text');
+            
+            // Create an observer to watch for text changes
+            const observer = new MutationObserver(function(mutations) {
+                if (subtitleBox.innerText.trim().length > 0) {
+                    subtitleBox.classList.add('visible');
+                    
+                    // Optional: Auto-hide after 10 seconds of no updates
+                    clearTimeout(window.subtitleTimer);
+                    window.subtitleTimer = setTimeout(() => {
+                        subtitleBox.classList.remove('visible');
+                    }, 10000);
+                } else {
+                    subtitleBox.classList.remove('visible');
+                }
+            });
+
+            observer.observe(subtitleBox, { childList: true, characterData: true, subtree: true });
         };
     </script>
 </body>
