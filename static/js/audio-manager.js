@@ -1,9 +1,9 @@
 // FILE: static/js/audio-manager.js
 
 // --- CONFIGURATION ---
-const SILENCE_THRESHOLD = 15; // Volume level to consider "Silence" (0-255)
-const SILENCE_DURATION = 1000; // How long to wait after speech stops (ms)
-const MAX_RECORD_TIME = 8000; // Force stop after 8 seconds
+const SILENCE_THRESHOLD = 15; 
+const SILENCE_DURATION = 1000; 
+const MAX_RECORD_TIME = 8000; 
 
 // --- VARIABLES ---
 let mediaRecorder = null;
@@ -14,7 +14,7 @@ let micAnalyser, micDataArray, micVisualizerInterval;
 // State Variables
 let lastSpeechTime = 0;
 let recordingStartTime = 0;
-let hasSpoken = false; // Did we hear the user speak yet?
+let hasSpoken = false; 
 let silenceTimerID = null;
 
 // --- UI HELPERS ---
@@ -63,7 +63,6 @@ function startVisualizer(btn) {
         for(let i=0; i<micDataArray.length; i++) sum += micDataArray[i];
         let avg = sum / micDataArray.length;
         
-        // Visual Glow
         let glow = Math.min(255, avg * 2.5);
         if (btn.innerText.includes("Listening")) {
             btn.style.boxShadow = `0 0 ${avg}px rgb(${255-glow}, ${glow + 50}, 50)`;
@@ -79,52 +78,36 @@ function initMicrophone() {
     navigator.mediaDevices.getUserMedia({ audio: true })
         .then(stream => {
             globalStream = stream;
-            
             const micCtx = new (window.AudioContext || window.webkitAudioContext)();
             const source = micCtx.createMediaStreamSource(stream);
             micAnalyser = micCtx.createAnalyser();
-            micAnalyser.fftSize = 64; // Low detail for performance
+            micAnalyser.fftSize = 64; 
             source.connect(micAnalyser);
             micDataArray = new Uint8Array(micAnalyser.frequencyBinCount);
-            
             console.log("🎤 Microphone Connected & Ready");
         })
         .catch(console.error);
 }
 
 // --- RECORDING LOGIC ---
-
 function startRecording() {
     ensureAudioContext();
+    if (window.isServerGenerating) return;
     
-    // Safety: Don't start if AI is processing
-    if (window.isServerGenerating) {
-        console.warn("⚠️ Cannot listen: AI is thinking.");
-        return;
-    }
-    
-    // Interrupt: If AI is talking, shut it up
     if (window.isSpeaking) {
         forceStopPlayback();
         socket.emit('interrupt_signal');
     }
 
     if (!globalStream) {
-        console.error("❌ No Microphone Stream!");
-        initMicrophone(); // Try to reconnect
+        initMicrophone(); 
         return;
     }
 
-    // 1. CLEANUP OLD RECORDER
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-    }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
 
-    // 2. SETUP NEW RECORDER
     let mimeType = 'audio/webm';
-    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-    }
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
 
     mediaRecorder = new MediaRecorder(globalStream, { mimeType: mimeType });
     audioChunks = [];
@@ -134,35 +117,32 @@ function startRecording() {
     };
 
     mediaRecorder.onstop = () => {
-        // This runs when we explicitly call .stop()
         const audioBlob = new Blob(audioChunks, { type: mimeType });
         console.log(`📦 Recording Stopped. Size: ${audioBlob.size} bytes`);
         
-        // Only send if we actually have data and it's not microscopic
         if (audioBlob.size > 500) {
             window.isServerGenerating = true; 
             setButtonState('THINKING');
+            
+            // --- TRIGGER VISUAL THINKING ---
+            if (window.setThinking) window.setThinking(true); 
+
             socket.emit('audio_stream', audioBlob);
         } else {
-            console.warn("⚠️ Audio too short/empty. Ignoring.");
-            // If in auto mode, try listening again shortly
             if(window.conversationMode) setTimeout(startRecording, 500);
             else setButtonState('IDLE');
         }
     };
 
-    // 3. RESET STATE
     recordingStartTime = Date.now();
-    lastSpeechTime = Date.now(); // Reset timer to now
+    lastSpeechTime = Date.now(); 
     hasSpoken = false;
     window.isRecording = true;
     setButtonState('LISTENING');
 
     mediaRecorder.start(100); 
 
-    // 4. START MONITORING LOOP
     if (window.conversationMode) {
-        console.log("👂 Auto-Listening Started...");
         cancelAnimationFrame(silenceTimerID);
         silenceTimerID = requestAnimationFrame(monitorSilence);
     }
@@ -176,11 +156,10 @@ function stopRecording() {
     }
 }
 
-// --- NEW MONITORING LOGIC (Time-Based) ---
+// --- SILENCE MONITOR ---
 function monitorSilence() {
     if (!window.isRecording || !window.conversationMode) return;
 
-    // A. Check Volume
     let currentVolume = 0;
     if (micAnalyser) {
         micAnalyser.getByteFrequencyData(micDataArray);
@@ -191,24 +170,18 @@ function monitorSilence() {
 
     const now = Date.now();
 
-    // B. Logic
     if (currentVolume > SILENCE_THRESHOLD) {
-        // User is talking
         if (!hasSpoken) console.log("🗣️ Speech Detected!");
         hasSpoken = true;
-        lastSpeechTime = now; // Reset the "silence clock"
+        lastSpeechTime = now; 
     }
 
-    // C. Check for Silence Timeout (Only if they have spoken already)
     if (hasSpoken && (now - lastSpeechTime > SILENCE_DURATION)) {
-        console.log("🤫 Silence detected (1s). Stopping.");
         stopRecording();
         return;
     }
 
-    // D. Check for Max Duration (Force stop after 8s even if noisy)
     if (now - recordingStartTime > MAX_RECORD_TIME) {
-        console.log("⏰ Max recording time reached.");
         stopRecording();
         return;
     }
@@ -225,6 +198,9 @@ function forceStopPlayback() {
     isPlayingSequence = false;
     window.isSpeaking = false;
     window.isServerGenerating = false;
+    
+    // Stop thinking if interrupted
+    if (window.setThinking) window.setThinking(false);
 }
 
 // --- PLAYBACK ---
@@ -233,6 +209,9 @@ let isPlayingSequence = false;
 window.currentAudioObj = null;
 
 socket.on('speak_audio_sequence', (playlist) => {
+    // --- STOP THINKING WHEN RESPONSE ARRIVES ---
+    if (window.setThinking) window.setThinking(false);
+
     if (window.isRecording) return; 
     window.isSpeaking = true;
     setButtonState('SPEAKING');
@@ -242,17 +221,25 @@ socket.on('speak_audio_sequence', (playlist) => {
 
 socket.on('ai_response_done', () => {
     window.isServerGenerating = false;
-    console.log("✅ AI Response Complete.");
     
-    // Only restart listening if we are done playing audio
+    // Just in case (Stop thinking)
+    if (window.setThinking) window.setThinking(false);
+
     if (!isPlayingSequence && audioQueue.length === 0) {
         if (window.conversationMode) {
-            console.log("🔄 Restarting Listener in 200ms...");
             setTimeout(startRecording, 200);
         } else {
             setButtonState('IDLE');
         }
     }
+});
+
+socket.on('error', (data) => {
+    console.error("Server Error:", data);
+    window.isServerGenerating = false; 
+    if (window.setThinking) window.setThinking(false); // Stop thinking on error
+    setButtonState('IDLE');
+    if (window.conversationMode) setTimeout(() => startRecording(), 1000);
 });
 
 function playNextInQueue() {
@@ -261,7 +248,6 @@ function playNextInQueue() {
         isPlayingSequence = false;
         window.isSpeaking = false;
         
-        // If the AI is done generating AND done speaking -> Listen again
         if (!window.isServerGenerating) {
             if (window.conversationMode) {
                 setTimeout(startRecording, 200);
@@ -276,20 +262,17 @@ function playNextInQueue() {
     window.isSpeaking = true;
     const currentItem = audioQueue.shift(); 
 
-    // UI Updates
     if (currentItem.text) {
         const t = document.getElementById('response-text');
         if(t) { t.innerText = currentItem.text; t.style.display = 'block'; }
     }
     if (currentItem.emotion) triggerExp(currentItem.emotion);
 
-    // Audio Playback
     if (currentItem.audio) {
         const audio = new Audio(currentItem.audio);
         audio.crossOrigin = 'anonymous';
         window.currentAudioObj = audio; 
         
-        // Lip Sync Connect
         if(audioContext) {
             const source = audioContext.createMediaElementSource(audio);
             source.connect(analyser); 
@@ -306,7 +289,6 @@ function playNextInQueue() {
     }
 }
 
-// --- INIT ---
 window.startRecording = startRecording;
 window.stopRecording = stopRecording;
 window.initMicrophone = initMicrophone;
