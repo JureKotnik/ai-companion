@@ -58,9 +58,9 @@ function animateLive2D(model, time, isSpeaking) {
         if (!isSpeaking) {
             let timeSinceAction = now - lastInteractionTime;
 
-            // STAGE 1: RELAXED (15s - 45s)
+            // STAGE 1: RELAXED (15s - 90s)
             // Just chilling, maybe looking a bit thoughtful
-            if (timeSinceAction > 15000 && timeSinceAction < 45000) {
+            if (timeSinceAction > 15000 && timeSinceAction < 90000) {
                 if (idleState !== 1) {
                     console.log("Idle Stage 1: Relaxing...");
                     setExpression(model, 'Reset', true);
@@ -68,9 +68,9 @@ function animateLive2D(model, time, isSpeaking) {
                 }
             }
 
-            // STAGE 2: RESTLESS / BORED (45s - 90s)
+            // STAGE 2: RESTLESS / BORED (90s - 180s)
             // Starting to look around, wondering where you are
-            else if (timeSinceAction > 45000 && timeSinceAction < 90000) {
+            else if (timeSinceAction > 90000 && timeSinceAction < 180000) {
                 if (idleState !== 2) {
                     console.log("Idle Stage 2: Getting Bored...");
                     setExpression(model, 'Bored', true); // Permanent mood change
@@ -92,9 +92,9 @@ function animateLive2D(model, time, isSpeaking) {
                 }
             }
 
-            // STAGE 3: DROWSY (90s - 120s)
+            // STAGE 3: DROWSY (180s - 250s)
             // Fighting sleep, eyes getting heavy
-            else if (timeSinceAction > 90000 && timeSinceAction < 120000) {
+            else if (timeSinceAction > 180000 && timeSinceAction < 250000) {
                 if (idleState !== 3) {
                     console.log("Idle Stage 3: Getting Drowsy...");
                     setExpression(model, 'Sleepy', true);
@@ -111,9 +111,9 @@ function animateLive2D(model, time, isSpeaking) {
                 }
             }
 
-            // STAGE 4: DEEP SLEEP (120s+)
+            // STAGE 4: DEEP SLEEP (250s+)
             // Fully out. Head down.
-            else if (timeSinceAction > 120000) {
+            else if (timeSinceAction > 250000) {
                 if (idleState !== 4) {
                     console.log("Idle Stage 4: Zzzzz...");
                     setExpression(model, 'Sleepy', true); // Ensure base is sleepy

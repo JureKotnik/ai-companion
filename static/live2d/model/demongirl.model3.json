@@ -1,0 +1,127 @@
+{
+    "Version": 3,
+    "FileReferences": {
+        "Moc": "demongirl.moc3",
+        "Textures": [
+            "demongirl.4096/texture_00.png",
+            "demongirl.4096/texture_01.png"
+        ],
+        "Physics": "demongirl.physics3.json",
+        "DisplayInfo": "demongirl.cdi3.json",
+        "Expressions": [
+            {
+                "Name": "Reset",
+                "File": "Expressions/Reset.exp3.json"
+            },
+            {
+                "Name": "Amazed",
+                "File": "Expressions/Amazed.exp3.json"
+            },
+            {
+                "Name": "Angry",
+                "File": "Expressions/Angry.exp3.json"
+            },
+            {
+                "Name": "Cry",
+                "File": "Expressions/Cry.exp3.json"
+            },
+            {
+                "Name": "Love",
+                "File": "Expressions/Love.exp3.json"
+            },
+            {
+                "Name": "Nervous",
+                "File": "Expressions/Nervous.exp3.json"
+            },
+            {
+                "Name": "Sleepy",
+                "File": "Expressions/Sleepy.exp3.json"
+            },
+                        {
+                "Name": "Happy",
+                "File": "Expressions/Happy.exp3.json"
+            },
+            {
+                "Name": "Sad",
+                "File": "Expressions/Sad.exp3.json"
+            },
+            {
+                "Name": "Surprised",
+                "File": "Expressions/Surprised.exp3.json"
+            },
+            {
+                "Name": "Smug",
+                "File": "Expressions/Smug.exp3.json"
+            },
+            {
+                "Name": "Embarrassed",
+                "File": "Expressions/Embarrassed.exp3.json"
+            },
+            {
+                "Name": "Confused",
+                "File": "Expressions/Confused.exp3.json"
+            },
+            {
+                "Name": "Disgusted",
+                "File": "Expressions/Disgusted.exp3.json"
+            },
+            {
+                "Name": "Excited",
+                "File": "Expressions/Excited.exp3.json"
+            },
+            {
+                "Name": "Bored",
+                "File": "Expressions/Bored.exp3.json"
+            },
+            {
+                "Name": "Scared",
+                "File": "Expressions/Scared.exp3.json"
+            },
+            {
+                "Name": "Thinking",
+                "File": "Expressions/Thinking.exp3.json"
+            },
+            {
+                "Name": "Disappointed",
+                "File": "Expressions/Disappointed.exp3.json"
+            },
+            {
+                "Name": "Smiling",
+                "File": "Expressions/Smiling.exp3.json"
+            },
+            {
+                "Name": "Laughing",
+                "File": "Expressions/Laughing.exp3.json"
+            },
+            {
+                "Name": "Wink",
+                "File": "Expressions/Wink.exp3.json"
+            },
+            {
+                "Name": "Determined",
+                "File": "Expressions/Determined.exp3.json"
+            },
+            {
+                "Name": "Sneeze",
+                "File": "Expressions/Sneeze.exp3.json"
+            },
+            {
+                "Name": "Shocked",
+                "File": "Expressions/Shocked.exp3.json"
+            }
+
+        ]
+    },
+    "Groups": [
+        {
+            "Target": "Parameter",
+            "Name": "LipSync",
+            "Ids": []
+        },
+        {
+            "Target": "Parameter",
+            "Name": "EyeBlink",
+            "Ids": []
+        }
+    ]
+}
