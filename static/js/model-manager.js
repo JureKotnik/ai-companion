@@ -136,7 +136,7 @@ function animate() {
     lastFrameTime = now;
     
     // 1. Run Standard Movements
-    if (typeof animateLive2D === "function") animateLive2D(model, now / 1000, isSpeaking);
+    if (typeof animateLive2D === "function") animateLive2D(model, now / 1000, isSpeaking, currentMood);
     if (typeof animateMouthLive2D === "function") animateMouthLive2D(model, analyser, dataArray, isSpeaking);
 
     // 2. CALCULATE SMOOTH WEIGHT
