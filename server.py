@@ -11,6 +11,7 @@ from brain import CompanionBrain
 import whisper
 import sys
 import tempfile
+import threading 
 
 # --- IMPORT CONFIGURATION ---
 import config
@@ -31,7 +32,11 @@ audio_folder = os.path.join("static", "audio")
 if not os.path.exists(audio_folder): os.makedirs(audio_folder)
 
 # --- GLOBAL STATE ---
-IS_QUIET_MODE = False  # Default: Normal volume
+IS_QUIET_MODE = False  
+last_request_time = 0   # Handles user interruptions
+last_interaction_time = time.time() # Tracks silence duration
+is_speaking = False     # Prevents her from interrupting herself
+autonomy_enabled = True # Master switch for spontaneous talking
 
 # --- LOAD MODELS ---
 try: kokoro = Kokoro("kokoro-v0_19.onnx", "voices.bin"); print("✔ Kokoro Loaded.")
@@ -44,13 +49,96 @@ except: brain = None
 if TEST_MODE:
     print("\n⚠️  WARNING: TEST MODE IS ON. Memory will not be saved. ⚠️\n")
 
-last_request_time = 0  
-
 @app.route('/')
 def index(): return render_template('live2d.html')
 
 @app.route('/favicon.ico')
 def favicon(): return "", 204
+
+# ==========================================
+# 🧠 ADVANCED SPONTANEITY ENGINE
+# ==========================================
+def autonomy_loop():
+    global last_interaction_time, is_speaking
+    print("🧠 Spontaneity Engine Started...")
+    
+    # Initialize the first "Next Trigger Time"
+    # Wait at least 45 seconds after startup before talking
+    next_trigger_time = time.time() + random.randint(45, 120)
+
+    while True:
+        time.sleep(1) # Check every second (low CPU usage)
+        
+        current_time = time.time()
+        
+        # 1. STOP CONDITIONS
+        # If disabled, quiet mode, or she's already talking -> Do nothing
+        if not autonomy_enabled or is_speaking or IS_QUIET_MODE:
+            # Push the trigger time forward so she doesn't speak *immediately* after finishing
+            if is_speaking:
+                next_trigger_time = current_time + random.randint(30, 90)
+            continue
+            
+        # 2. SILENCE CHECK
+        # If the user spoke recently (e.g. 10s ago), delay the trigger
+        if (current_time - last_interaction_time) < 15:
+            next_trigger_time = current_time + random.randint(30, 60)
+            continue
+
+        # 3. TRIGGER TIME REACHED?
+        if current_time > next_trigger_time:
+            # ROLL THE DICE
+            # 20% Chance for a LONG RAMBLE
+            # 80% Chance for a SHORT COMMENT
+            if random.random() < 0.20:
+                trigger_random_thought(ramble=True)
+                # Rambles need a longer cooldown (3 to 6 minutes)
+                next_trigger_time = current_time + random.randint(180, 360)
+            else:
+                trigger_random_thought(ramble=False)
+                # Short comments need a shorter cooldown (1 to 3 minutes)
+                next_trigger_time = current_time + random.randint(60, 180)
+
+def trigger_random_thought(ramble=False):
+    global is_speaking, last_request_time
+    
+    # Update timestamps to prevent conflicts
+    my_start_time = time.time()
+    last_request_time = my_start_time
+    
+    prompt = ""
+    
+    if ramble:
+        print("💡 She decided to RAMBLE!")
+        ramble_topics = [
+            "the nature of consciousness and being an AI",
+            "a weird dream you 'had' (hallucinate one)",
+            "why humans are so obsessed with time",
+            "a detailed story about a fictional place",
+            "your favorite colors and why they make you feel things",
+            "the concept of infinite space"
+        ]
+        topic = random.choice(ramble_topics)
+        # We explicitly tell the Brain to go long
+        prompt = f"(The room is silent. You feel like rambling. Start talking about {topic}. Go on a tangent. Connect it to random things. Speak for a while, at least 3-4 sentences. Be stream-of-consciousness.)"
+    else:
+        print("💡 She decided to make a short comment.")
+        flavors = [
+            "Share a random fun fact.",
+            "Ask the user what they are thinking about.",
+            "Hum or make a sound effect (write *humming*).",
+            "Comment on how peaceful it is.",
+            "Remember something we talked about earlier."
+        ]
+        flavor = random.choice(flavors)
+        prompt = f"(The room is silent. {flavor} Keep it brief and conversational.)"
+    
+    # Run in background
+    socketio.start_background_task(process_response, prompt, my_start_time)
+
+# ==========================================
+# 🔊 AUDIO & TEXT PROCESSING
+# ==========================================
 
 def generate_kokoro_audio(text, filename, emotion=None):
     if not kokoro: return None
@@ -62,32 +150,19 @@ def generate_kokoro_audio(text, filename, emotion=None):
         speed = 1.0       
         volume = 1.0      
 
-        # 1. CHECK QUIET MODE OVERRIDE
         if IS_QUIET_MODE:
-            # Use Config if available, otherwise use HARDCODED preference
-            if "Whisper" in VOICE_STYLES:
-                style = VOICE_STYLES["Whisper"]
-            else:
-                # FALLBACK: Speed 0.95 (Fast), Volume 0.3 (Quiet)
-                style = ("af", 0.95, 0.3) 
-        
-        # 2. OR USE EMOTION STYLE
+            if "Whisper" in VOICE_STYLES: style = VOICE_STYLES["Whisper"]
+            else: style = ("af", 0.95, 0.3) 
         elif emotion in VOICE_STYLES:
             style = VOICE_STYLES[emotion]
         else:
-            style = ("af", 1.0, 1.0) # Normal
+            style = ("af", 1.0, 1.0) 
 
-        # Unpack style (Voice, Speed, Volume)
-        if len(style) >= 2:
-            voice_name = style[0]
-            speed = style[1]
-        if len(style) >= 3:
-            volume = style[2]
+        if len(style) >= 2: voice_name, speed = style[0], style[1]
+        if len(style) >= 3: volume = style[2]
 
-        # 3. GENERATE
         samples, sample_rate = kokoro.create(text, voice=voice_name, speed=speed, lang="en-us")
         
-        # 4. APPLY VOLUME
         if volume != 1.0:
             samples = samples * volume
             samples = np.clip(samples, -1.0, 1.0)
@@ -107,27 +182,20 @@ def clean_for_speech(text):
 def check_mode_switch(text):
     global IS_QUIET_MODE
     text_lower = text.lower()
-    
-    # Enable Quiet Mode
     for trigger in QUIET_TRIGGERS:
         if trigger in text_lower:
-            IS_QUIET_MODE = True
-            print("🌙 Quiet Mode Activated")
-            return True
-            
-    # Disable Quiet Mode
+            IS_QUIET_MODE = True; print("🌙 Quiet Mode Activated"); return True
     for trigger in NORMAL_TRIGGERS:
         if trigger in text_lower:
-            IS_QUIET_MODE = False
-            print("☀️ Normal Mode Restored")
-            return True
+            IS_QUIET_MODE = False; print("☀️ Normal Mode Restored"); return True
     return False
 
 def process_response(user_text, my_start_time):
-    global last_request_time
+    global last_request_time, is_speaking, last_interaction_time
     if my_start_time < last_request_time: return
 
-    # Check for mode commands
+    is_speaking = True
+    last_interaction_time = time.time()
     check_mode_switch(user_text)
 
     print(f"\nUser: {user_text}")
@@ -138,80 +206,78 @@ def process_response(user_text, my_start_time):
         current_emotion = "Neutral" 
         is_first_sentence = True
         
-        for chunk in brain.stream_response(user_text):
-            if my_start_time < last_request_time: return 
+        try:
+            for chunk in brain.stream_response(user_text):
+                if my_start_time < last_request_time: return 
 
-            buffer += chunk
-            sys.stdout.write(chunk)
-            sys.stdout.flush()
-            
-            if re.search(r'[.!?;:]', chunk):
-                parts = re.split(r'([.!?;:])', buffer)
-                buffer = "" 
-                sentences = ["".join(x) for x in zip(parts[0::2], parts[1::2])]
+                buffer += chunk
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
                 
-                playlist = []
-                for sentence in sentences:
-                    sentence = sentence.strip()
-                    if not sentence: continue
+                if re.search(r'[.!?;:]', chunk):
+                    parts = re.split(r'([.!?;:])', buffer)
+                    buffer = "" 
+                    sentences = ["".join(x) for x in zip(parts[0::2], parts[1::2])]
                     
-                    # 1. DETECT EMOTION
-                    for key, val in EMOTION_MAP.items():
-                        if key in sentence.lower(): 
-                            current_emotion = val
-                            break 
-                    
-                    # 2. CLEAN TEXT
-                    audio_text = re.sub(r'[\*\[].*?[\*\]]', '', sentence)
-                    audio_text = re.sub(r'[^\w\s,.!?;:\'\-]', '', audio_text).strip()
-                    if not any(c.isalnum() for c in audio_text): continue
-                    audio_text = clean_for_speech(audio_text)
+                    playlist = []
+                    for sentence in sentences:
+                        sentence = sentence.strip()
+                        if not sentence: continue
+                        
+                        for key, val in EMOTION_MAP.items():
+                            if key in sentence.lower(): current_emotion = val; break 
+                        
+                        audio_text = re.sub(r'[\*\[].*?[\*\]]', '', sentence)
+                        audio_text = re.sub(r'[^\w\s,.!?;:\'\-]', '', audio_text).strip()
+                        if not any(c.isalnum() for c in audio_text): continue
+                        audio_text = clean_for_speech(audio_text)
 
-                    # 3. SOUND INJECTION
-                    prefix = ""
-                    
-                    # A. FILLERS (Disable in quiet mode to save time/noise)
-                    if is_first_sentence and not IS_QUIET_MODE:
-                        if FILLERS and random.random() < 0.40: 
-                            prefix = random.choice(FILLERS)
-                        is_first_sentence = False
-                    
-                    # B. EMOTION SOUNDS (Disable loud sounds in Quiet Mode)
-                    elif not IS_QUIET_MODE and current_emotion in SOUND_BANK and not prefix and random.random() < 0.50:
-                        prefix = random.choice(SOUND_BANK[current_emotion])
-                    
-                    # C. BREATHS (Allowed in quiet mode, they fit well)
-                    elif len(audio_text.split()) > 8 and not prefix and random.random() < 0.3:
-                        if BREATH_SOUNDS: prefix = random.choice(BREATH_SOUNDS)
+                        prefix = ""
+                        if is_first_sentence and not IS_QUIET_MODE:
+                            if FILLERS and random.random() < 0.40: prefix = random.choice(FILLERS)
+                            is_first_sentence = False
+                        elif not IS_QUIET_MODE and current_emotion in SOUND_BANK and not prefix and random.random() < 0.50:
+                            prefix = random.choice(SOUND_BANK[current_emotion])
+                        elif len(audio_text.split()) > 8 and not prefix and random.random() < 0.3:
+                            if BREATH_SOUNDS: prefix = random.choice(BREATH_SOUNDS)
 
-                    if prefix: audio_text = f"{prefix} ... {audio_text}"
+                        if prefix: audio_text = f"{prefix} ... {audio_text}"
 
-                    # 4. GENERATE
-                    filename = f"seq_{int(time.time())}_{len(playlist)}.wav"
-                    audio_url = generate_kokoro_audio(audio_text, filename, emotion=current_emotion)
-                    
-                    if audio_url:
-                        playlist.append({'text': sentence, 'audio': audio_url, 'emotion': current_emotion})
+                        filename = f"seq_{int(time.time())}_{len(playlist)}.wav"
+                        audio_url = generate_kokoro_audio(audio_text, filename, emotion=current_emotion)
+                        
+                        if audio_url:
+                            playlist.append({'text': sentence, 'audio': audio_url, 'emotion': current_emotion})
 
-                if playlist:
-                    if my_start_time < last_request_time: return
-                    socketio.emit('speak_audio_sequence', playlist, namespace='/')
-        
-    print("")
-    if my_start_time >= last_request_time:
-        socketio.emit('ai_response_done', namespace='/') 
+                    if playlist:
+                        if my_start_time < last_request_time: return
+                        socketio.emit('speak_audio_sequence', playlist, namespace='/')
+            
+            print("")
+            if my_start_time >= last_request_time:
+                socketio.emit('ai_response_done', namespace='/') 
+                
+        finally:
+            is_speaking = False
+            last_interaction_time = time.time()
+
+# ==========================================
+# 🔌 SOCKET HANDLERS
+# ==========================================
 
 @socketio.on('user_message')
 def handle_message(data):
-    global last_request_time
+    global last_request_time, last_interaction_time
+    last_interaction_time = time.time()
     last_request_time = time.time()
     socketio.start_background_task(process_response, data.get('message'), last_request_time)
 
 @socketio.on('audio_stream')
 def handle_audio_stream(audio_data):
     print(f">> 🎤 [Server] Receiving Audio ({len(audio_data)} bytes)...")
-    global last_request_time
+    global last_request_time, last_interaction_time
     last_request_time = time.time() 
+    last_interaction_time = time.time() 
     
     if not stt_model: return
     try:
@@ -245,4 +311,6 @@ def handle_delete_audio(data):
         except: pass
 
 if __name__ == '__main__':
+    # Start the Autonomy Loop in the background
+    threading.Thread(target=autonomy_loop, daemon=True).start()
     socketio.run(app, debug=True)

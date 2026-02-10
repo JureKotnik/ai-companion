@@ -2,8 +2,9 @@
 
 /* ==========================================================================
    LIVE2D MOTION ENGINE
-   Handles: Idle Behavior, Physics, Expressions, Micro-Expressions, Lip Sync,
-   Mouse Tracking, and Audio Reactivity.
+   - Fixed: Removed "Flinch" mechanic (stopped body jerking to voice volume).
+   - Fixed: Body completely isolates/freezes when speaking.
+   - Fixed: Time base is seconds (t) to prevent high-speed twitching.
    ========================================================================== */
 
 // --- CONFIGURATION ---
@@ -20,11 +21,8 @@ const CONFIG = {
     MICRO_EXP_INTERVAL: 3000, 
     
     // Mouse Tracking
-    MOUSE_TRACKING_SPEED: 0.1, // Increased speed for responsiveness
-    MOUSE_HEAD_RANGE: 30.0,     // Max degrees the head rotates (Standard max is 30)
-    
-    // Audio Reactivity
-    LOUD_THRESHOLD: 40,         
+    MOUSE_TRACKING_SPEED: 0.1, 
+    MOUSE_HEAD_RANGE: 30.0,     
     
     // Idle Thresholds (ms)
     STAGE_1_RELAXED: 15000,  
@@ -34,24 +32,23 @@ const CONFIG = {
 };
 
 // --- STATE VARIABLES ---
-// Eyes & Head
 let eyeTarget = { x: 0, y: 0 };
 let currentEye = { x: 0, y: 0 }; 
 let headTarget = { x: 0, y: 0, z: 0 };
 let currentHead = { x: 0, y: 0, z: 0 };
 
-// 🆕 MOUSE INPUT
-let mousePos = { x: 0, y: 0 }; // Normalized -1 to 1
+// 🆕 MOOD & SPEECH SMOOTHING
+let moodPhysics = { headY: 0, bodyX: 0, headZ: 0 }; 
+let speakingWeight = 0; // 0 = Silent, 1 = Full Speaking (Locks body)
+
+// Mouse Input
+let mousePos = { x: 0, y: 0 }; 
 let isMouseActive = false;
 let lastMouseMoveTime = 0;
 
-// Brows & Micro-Expressions
-let browTarget = { l: 0, r: 0, angle: 0, form: 0 };
+// Brows & Expressions
 let currentBrow = { l: 0, r: 0, angle: 0, form: 0 };
-let squintWeight = 0; 
 let currentSquint = 0;
-
-// Random Micro-Expression State
 let randomBrowOffset = { l: 0, r: 0, angle: 0 };
 let randomSquintOffset = 0;
 let randomMouthOffset = 0; 
@@ -71,7 +68,6 @@ let lastPostureTime = 0;
 let lastSaccadeTime = 0;
 let lastMicroTiltTime = 0;
 let lastInteractionTime = Date.now();
-let lastFlavorTime = 0; 
 
 // Blink State
 let blinkState = 0; 
@@ -79,10 +75,7 @@ let nextBlinkTime = 0;
 let blinkValue = 1.0; 
 let longBlinkDuration = 0;
 
-// Audio Reactivity
-let reactionLean = 0; 
-
-// Idle State (0=Active, 1=Relaxed, 2=Bored, 3=Drowsy, 4=Sleep)
+// Idle State
 let idleState = 0; 
 
 // Mouth
@@ -97,7 +90,6 @@ let currentMouthForm = 0;
 function resetIdleTimer() {
     lastInteractionTime = Date.now();
     if (idleState !== 0) {
-        console.log("Wake up! Engaging...");
         idleState = 0; 
     }
 }
@@ -114,19 +106,11 @@ function lerp(start, end, t) {
     return start * (1 - t) + end * t;
 }
 
-// 🆕 UPDATED MOUSE EVENT LISTENER
 window.addEventListener('mousemove', (e) => {
-    // X: -1 (Left) to +1 (Right)
     mousePos.x = (e.clientX / window.innerWidth) * 2 - 1;
-    
-    // Y: INVERTED! +1 (Top) to -1 (Bottom)
-    // We invert it so "Up" on screen (0) becomes +1 for the model
     mousePos.y = -((e.clientY / window.innerHeight) * 2 - 1); 
-    
     isMouseActive = true;
     lastMouseMoveTime = Date.now();
-    
-    // Reset idle if mouse moves aggressively
     if (Math.abs(e.movementX) > 5 || Math.abs(e.movementY) > 5) {
         resetIdleTimer();
     }
@@ -142,16 +126,16 @@ function animateLive2D(model, time, isSpeaking, currentMood) {
     window.currentModel = model; 
     const core = model.internalModel.coreModel;
     let now = Date.now();
+    
+    // Time in Seconds (t) to prevent twitching
+    let t = now / 1000; 
 
     try {
-        // ------------------------------------------------------------------
-        // 1. IDLE STATE MACHINE
-        // ------------------------------------------------------------------
+        // --- 1. IDLE STATE ---
         if (now - lastMouseMoveTime > 10000) isMouseActive = false;
 
         if (!isSpeaking) {
             let timeSinceAction = now - lastInteractionTime;
-
             if (timeSinceAction > CONFIG.STAGE_1_RELAXED && timeSinceAction < CONFIG.STAGE_2_BORED) {
                 if (idleState !== 1) { setExpression(model, 'Reset', true); idleState = 1; }
             }
@@ -168,54 +152,33 @@ function animateLive2D(model, time, isSpeaking, currentMood) {
             resetIdleTimer();
         }
 
-        // ------------------------------------------------------------------
-        // 2. MICRO-EXPRESSION LOGIC
-        // ------------------------------------------------------------------
-        
+        // --- 2. MICRO-EXPRESSIONS ---
         if (now - lastMicroExpTime > CONFIG.MICRO_EXP_INTERVAL + Math.random() * 4000) {
             if (idleState < 3) { 
                 let rand = Math.random();
                 if (rand < 0.25) {
-                    randomBrowOffset = { l: 0, r: 0.2, angle: -0.1 };
-                    randomSquintOffset = 0.1;
-                    randomMouthOffset = -0.2; 
+                    randomBrowOffset = { l: 0, r: 0.2, angle: -0.1 }; randomSquintOffset = 0.1; randomMouthOffset = -0.2; 
                 } else if (rand < 0.5) {
-                    randomBrowOffset = { l: 0.2, r: 0.2, angle: 0.1 };
-                    randomSquintOffset = -0.1; 
-                    randomMouthOffset = 0.0;
+                    randomBrowOffset = { l: 0.2, r: 0.2, angle: 0.1 }; randomSquintOffset = -0.1; randomMouthOffset = 0.0;
                 } else if (rand < 0.75) {
-                    randomBrowOffset = { l: 0.1, r: 0.1, angle: 0.1 }; 
-                    randomSquintOffset = 0.2; 
-                    randomMouthOffset = 0.5; 
+                    randomBrowOffset = { l: 0.1, r: 0.1, angle: 0.1 }; randomSquintOffset = 0.2; randomMouthOffset = 0.5; 
                 } else {
-                    randomBrowOffset = { l: 0, r: 0, angle: 0 };
-                    randomSquintOffset = 0;
-                    randomMouthOffset = 0.0;
+                    randomBrowOffset = { l: 0, r: 0, angle: 0 }; randomSquintOffset = 0; randomMouthOffset = 0.0;
                 }
             } else {
-                 randomBrowOffset = { l: 0, r: 0, angle: 0 };
-                 randomSquintOffset = 0;
-                 randomMouthOffset = 0;
+                 randomBrowOffset = { l: 0, r: 0, angle: 0 }; randomSquintOffset = 0; randomMouthOffset = 0;
             }
             lastMicroExpTime = now;
         }
 
-        // Define Targets
+        // Targets
         let targetBrowL = 0, targetBrowR = 0, targetBrowAngle = 0, targetSquint = 0;
+        if (currentMood === 'Thinking') { targetBrowL = -0.3; targetBrowR = 0.4; targetBrowAngle = -0.2; targetSquint = 0.4; }
+        else if (currentMood === 'Listening') { targetBrowL = 0.3; targetBrowR = 0.3; targetSquint = 0.15; }
+        else if (currentMood === 'Skeptical') { targetBrowL = -0.4; targetBrowR = 0.5; targetSquint = 0.6; }
+        else if (currentMood === 'Excited' || currentMood === 'Happy') { targetBrowL = 0.4; targetBrowR = 0.4; targetBrowAngle = 0.3; }
+        else if (currentMood === 'Angry') { targetBrowL = -0.6; targetBrowR = -0.6; targetBrowAngle = -0.8; targetSquint = 0.3; }
 
-        if (currentMood === 'Thinking') {
-            targetBrowL = -0.3; targetBrowR = 0.4; targetBrowAngle = -0.2; targetSquint = 0.4;     
-        } else if (currentMood === 'Listening') {
-            targetBrowL = 0.3; targetBrowR = 0.3; targetSquint = 0.15;    
-        } else if (currentMood === 'Skeptical') {
-            targetBrowL = -0.4; targetBrowR = 0.5; targetSquint = 0.6;     
-        } else if (currentMood === 'Excited' || currentMood === 'Happy') {
-            targetBrowL = 0.4; targetBrowR = 0.4; targetBrowAngle = 0.3; 
-        } else if (currentMood === 'Angry') {
-            targetBrowL = -0.6; targetBrowR = -0.6; targetBrowAngle = -0.8; targetSquint = 0.3;
-        }
-
-        // Combine & Smooth
         let microSpeed = 0.05; 
         currentBrow.l = lerp(currentBrow.l, targetBrowL + randomBrowOffset.l, microSpeed);
         currentBrow.r = lerp(currentBrow.r, targetBrowR + randomBrowOffset.r, microSpeed);
@@ -228,60 +191,37 @@ function animateLive2D(model, time, isSpeaking, currentMood) {
         core.setParameterValueById('ParamBrowRAngle', currentBrow.angle);
 
 
-        // ------------------------------------------------------------------
-        // 3. EYE LOGIC
-        // ------------------------------------------------------------------
+        // --- 3. EYES ---
         let blinkSpeed = (idleState === 3) ? 0.08 : 0.15;
-        if (currentSquint < 0) currentSquint = 0;
-        if (currentSquint > 0.8) currentSquint = 0.8;
-
+        if (currentSquint < 0) currentSquint = 0; if (currentSquint > 0.8) currentSquint = 0.8;
         let awakeBase = 1.0 - currentSquint; 
         let drowsyBase = 0.7 - (currentSquint * 0.5);
         let baseEyeOpen = (idleState === 3) ? drowsyBase : awakeBase;
         if (idleState === 4) baseEyeOpen = 0.0;
 
         if (idleState !== 4) { 
-            if (now > nextBlinkTime) {
-                blinkState = 1; 
-                nextBlinkTime = now + (CONFIG.BLINK_MIN + Math.random() * CONFIG.BLINK_MAX);
-            }
+            if (now > nextBlinkTime) { blinkState = 1; nextBlinkTime = now + (CONFIG.BLINK_MIN + Math.random() * CONFIG.BLINK_MAX); }
             if (blinkState === 1) { 
                 blinkValue -= blinkSpeed;
-                if (blinkValue <= 0) { 
-                    blinkValue = 0; blinkState = 2; 
-                    if (Math.random() < 0.15) { blinkState = 3; longBlinkDuration = now + 150 + Math.random() * 150; }
-                }
+                if (blinkValue <= 0) { blinkValue = 0; blinkState = 2; if (Math.random() < 0.15) { blinkState = 3; longBlinkDuration = now + 150 + Math.random() * 150; } }
             } else if (blinkState === 3) { 
                 if (now > longBlinkDuration) blinkState = 2; 
             } else if (blinkState === 2) { 
                 blinkValue += blinkSpeed;
-                if (blinkValue >= baseEyeOpen) { 
-                    blinkValue = baseEyeOpen; blinkState = 0; 
-                    if (Math.random() < 0.2) nextBlinkTime = now + 100; 
-                }
-            } else {
-                blinkValue = lerp(blinkValue, baseEyeOpen, 0.2);
-            }
-        } else {
-            blinkValue = 0.0; 
-        }
+                if (blinkValue >= baseEyeOpen) { blinkValue = baseEyeOpen; blinkState = 0; if (Math.random() < 0.2) nextBlinkTime = now + 100; }
+            } else { blinkValue = lerp(blinkValue, baseEyeOpen, 0.2); }
+        } else { blinkValue = 0.0; }
 
         let eyeL = blinkValue; let eyeR = blinkValue;
         if (currentMood === 'Skeptical') { eyeL = Math.min(blinkValue, 0.4); }
-        
-        if (reactionLean > 0) {
-             eyeL = 1.0; eyeR = 1.0; 
-        }
 
         core.setParameterValueById('ParamEyeLOpen', eyeL);
         core.setParameterValueById('ParamEyeROpen', eyeR);
 
 
-        // ------------------------------------------------------------------
-        // 4. MOTION PHYSICS (Head, Body, Tilt, Mouse)
-        // ------------------------------------------------------------------
+        // --- 4. PHYSICS & MOTION (FIXED) ---
         
-        // A. Micro-Tilts & Saccades
+        // A. Random Noise
         if (now - lastMicroTiltTime > CONFIG.MICRO_TILT_INTERVAL + Math.random() * 1000) {
             microTilt = (Math.random() - 0.5) * 2.0; lastMicroTiltTime = now;
             breathOffset = (Math.random() - 0.5) * 0.2; 
@@ -292,44 +232,36 @@ function animateLive2D(model, time, isSpeaking, currentMood) {
             lastSaccadeTime = now;
         }
 
-        // B. Target Calculation
+        // B. Speaking Weight Calculation
+        // This creates a smooth transition between "Moving" and "Still"
+        // 0.0 = Not Speaking (Moving), 1.0 = Speaking (Still)
+        let targetSpeechWeight = isSpeaking ? 1.0 : 0.0;
+        speakingWeight = lerp(speakingWeight, targetSpeechWeight, 0.1);
+
+        // C. Target Calculation
         if (isSpeaking) {
             eyeTarget.x = 0; eyeTarget.y = 0;
-            headTarget.x = getOrganicSway(time, 2.5, 3); 
-            headTarget.y = getOrganicSway(time, 2.0, 2); 
-            headTarget.z = Math.sin(time * 3) * 1.5;     
+            // HEAD NOD ONLY. No side-to-side.
+            headTarget.x = 0; 
+            headTarget.y = Math.sin(t * 5) * 1.5; // Moderate nod
+            headTarget.z = 0;     
         } else {
             if (currentMood === 'Listening') {
-                eyeTarget.x = 0; eyeTarget.y = 0;
-                headTarget.x = 0; headTarget.y = -5; headTarget.z = 0; 
+                eyeTarget.x = 0; eyeTarget.y = 0; headTarget.x = 0; headTarget.y = -5; headTarget.z = 0; 
             }
-            // 🆕 UPDATED MOUSE TRACKING
             else if (isMouseActive && idleState < 2) { 
-                // EYES: Follow mouse (0.8 scale)
-                eyeTarget.x = mousePos.x * 0.8; 
-                eyeTarget.y = mousePos.y * 0.8;
-                
-                // HEAD: Full rotation logic
-                // Max X/Y is defined by CONFIG.MOUSE_HEAD_RANGE (30 degrees)
+                eyeTarget.x = mousePos.x * 0.8; eyeTarget.y = mousePos.y * 0.8;
                 headTarget.x = mousePos.x * CONFIG.MOUSE_HEAD_RANGE; 
                 headTarget.y = mousePos.y * CONFIG.MOUSE_HEAD_RANGE;
-                
-                // HEAD Z (TILT): Lean into the turn
-                // Example: Look Left (Negative X) -> Tilt Left (Negative Z)
                 headTarget.z = mousePos.x * 5.0; 
             }
-            // Standard Random Looking
             else if (now - lastLookTime > nextLookDelay) {
                 if (idleState < 3) {
                      if (Math.random() > 0.4) {
-                        eyeTarget.x = (Math.random() - 0.5) * 2.0; 
-                        eyeTarget.y = (Math.random() - 0.5) * 1.5;
-                        headTarget.x = eyeTarget.x * 12; 
-                        headTarget.y = eyeTarget.y * 8;
-                        headTarget.z = (Math.random() - 0.5) * 5;
+                        eyeTarget.x = (Math.random() - 0.5) * 2.0; eyeTarget.y = (Math.random() - 0.5) * 1.5;
+                        headTarget.x = eyeTarget.x * 12; headTarget.y = eyeTarget.y * 8; headTarget.z = (Math.random() - 0.5) * 5;
                     } else {
-                        eyeTarget.x = 0; eyeTarget.y = 0;
-                        headTarget.x = 0; headTarget.y = 0; headTarget.z = 0;
+                        eyeTarget.x = 0; eyeTarget.y = 0; headTarget.x = 0; headTarget.y = 0; headTarget.z = 0;
                     }
                 }
                 lastLookTime = now;
@@ -337,15 +269,13 @@ function animateLive2D(model, time, isSpeaking, currentMood) {
             }
             
             if (idleState < 3 && !isMouseActive) {
-                headTarget.x += getOrganicSway(time, 0.4, 1.5);
-                headTarget.y += getOrganicSway(time, 0.3, 1.0);
+                headTarget.x += getOrganicSway(t, 0.4, 1.5);
+                headTarget.y += getOrganicSway(t, 0.3, 1.0);
             }
         }
 
-        // C. Interpolation (Smooth dampening)
-        // If tracking mouse, we move slightly faster (0.1 instead of 0.2 smoothing factor) for responsiveness
+        // D. Interpolation
         let smoothing = (isMouseActive) ? CONFIG.MOUSE_TRACKING_SPEED : ((idleState >= 3) ? 0.05 : 0.2);
-        
         currentEye.x += (eyeTarget.x + saccadeOffset.x - currentEye.x) * smoothing;
         currentEye.y += (eyeTarget.y + saccadeOffset.y - currentEye.y) * smoothing;
         
@@ -354,61 +284,50 @@ function animateLive2D(model, time, isSpeaking, currentMood) {
         currentHead.y += (headTarget.y - currentHead.y) * headSmoothing;
         currentHead.z += ((headTarget.z + microTilt) - currentHead.z) * headSmoothing;
 
-        // D. Apply
-        core.setParameterValueById('ParamEyeBallX', currentEye.x);
-        core.setParameterValueById('ParamEyeBallY', currentEye.y);
-        core.setParameterValueById('ParamAngleX', currentHead.x);
-        core.setParameterValueById('ParamAngleY', currentHead.y);
-        core.setParameterValueById('ParamAngleZ', currentHead.z);
+        // E. Body Physics (The Fix)
+        // 1. Calculate natural movement (Sway)
+        let bodySwayX = (idleState === 4) ? 0 : getOrganicSway(t, 0.5, 1.0); 
+        let bodySwayZ = (idleState === 4) ? 0 : getOrganicSway(t, 0.4, 0.5); 
 
-        // Body Physics
-        let bodySwayX = (idleState === 4) ? 0 : getOrganicSway(time, 0.2, 1.5); 
-        let bodySwayZ = (idleState === 4) ? 0 : getOrganicSway(time, 0.15, 1.0); 
-
-        // Posture Shift
         if (now - lastPostureTime > 15000 + Math.random() * 5000) {
             bodyBiasX = (Math.random() - 0.5) * 6; lastPostureTime = now;
         }
         currentBodyBiasX += (bodyBiasX - currentBodyBiasX) * 0.01;
 
-        // Body Apply
-        // Body follows head slightly (30%)
-        let bodyX = (currentHead.x * 0.3) + bodySwayX + currentBodyBiasX;
-        let bodyY = (currentHead.y * 0.1);
-        let bodyZ = (currentHead.x * 0.1) + bodySwayZ;
+        let naturalBodyX = (currentHead.x * 0.3) + bodySwayX + currentBodyBiasX;
+        let naturalBodyY = (currentHead.y * 0.1); // Small bounce from head
+        let naturalBodyZ = (currentHead.x * 0.1) + bodySwayZ;
 
-        // Audio Reactivity Lean
-        if (reactionLean > 0) {
-            bodyZ -= reactionLean; 
-            reactionLean -= 0.5;   
-        }
+        // 2. APPLY THE FREEZE
+        // If speakingWeight is 1.0, we force all Body Params to 0 (or a very neutral state).
+        // This ensures the body does not move with the voice.
+        let bodyX = lerp(naturalBodyX, 0, speakingWeight);
+        let bodyY = lerp(naturalBodyY, 0, speakingWeight); // Also freeze Y bounce
+        let bodyZ = lerp(naturalBodyZ, 0, speakingWeight);
 
-        // F. SPECIAL MOOD PHYSICS
-        let bodyY_Offset = 0;
+        // F. Mood Physics
+        let targetMoodHeadY = 0, targetMoodBodyX = 0, targetMoodHeadZ = 0, bodyY_Offset = 0; 
+        if (currentMood === 'Laughing') { let b = Math.sin(t * 15) * 3.0; targetMoodHeadY = b; bodyY_Offset = b * 0.1; }
+        else if (currentMood === 'Excited') { let j = (1 - Math.cos(t * 8)) * 0.5 * 10.0; targetMoodHeadY = j; bodyY_Offset = j * 0.3; }
+        else if (currentMood === 'Shiver' || currentMood === 'Scared') { let s = Math.sin(t * 25) * 1.5; targetMoodBodyX = s; targetMoodHeadZ = s * 0.5; }
 
-        if (currentMood === 'Laughing') {
-            let laughBounce = Math.sin(time * 25) * 3.0; 
-            core.setParameterValueById('ParamAngleY', currentHead.y + laughBounce);
-            bodyY_Offset += (laughBounce * 0.1); 
-        }
-        else if (currentMood === 'Excited') {
-            let jumpCycle = (1 - Math.cos(time * 10)) * 0.5; 
-            let totalJump = jumpCycle * 10.0; 
-            core.setParameterValueById('ParamAngleY', currentHead.y + totalJump);
-            bodyY_Offset += (totalJump * 0.3); 
-        }
-        else if (currentMood === 'Shiver' || currentMood === 'Scared') {
-            let shiver = Math.sin(time * 50) * 1.5;
-            core.setParameterValueById('ParamBodyAngleX', bodyX + shiver);
-            core.setParameterValueById('ParamAngleZ', currentHead.z + (shiver * 0.5));
-        }
+        moodPhysics.headY = lerp(moodPhysics.headY, targetMoodHeadY, 0.1);
+        moodPhysics.bodyX = lerp(moodPhysics.bodyX, targetMoodBodyX, 0.1);
+        moodPhysics.headZ = lerp(moodPhysics.headZ, targetMoodHeadZ, 0.1);
 
+        // G. Apply
+        core.setParameterValueById('ParamEyeBallX', currentEye.x);
+        core.setParameterValueById('ParamEyeBallY', currentEye.y);
+        core.setParameterValueById('ParamAngleX', currentHead.x);
+        core.setParameterValueById('ParamAngleY', currentHead.y + moodPhysics.headY);
+        core.setParameterValueById('ParamAngleZ', currentHead.z + moodPhysics.headZ);
+        
+        core.setParameterValueById('ParamBodyAngleX', bodyX + moodPhysics.bodyX);
         core.setParameterValueById('ParamBodyAngleY', bodyY + bodyY_Offset); 
-        core.setParameterValueById('ParamBodyAngleZ', bodyZ);
+        core.setParameterValueById('ParamBodyAngleZ', bodyZ); // No flinch modification here anymore
 
-        // Breathing
-        let breathSpeed = (idleState === 4) ? 0.5 : (1.2 + breathOffset + Math.sin(time * 0.1) * 0.3);
-        let breath = (Math.sin(time * breathSpeed) + 1) / 2; 
+        let breathSpeed = (idleState === 4) ? 0.5 : (1.2 + breathOffset + Math.sin(t * 2) * 0.3);
+        let breath = (Math.sin(t * breathSpeed) + 1) / 2; 
         core.setParameterValueById('ParamBreath', breath);
 
     } catch (e) { }
@@ -431,11 +350,8 @@ function animateMouthLive2D(model, analyser, dataArray, isSpeaking) {
         for(let i = 0; i < len; i++) sum += dataArray[i];
         let average = sum / len;
         
-        // Flinch Check
-        if (average > CONFIG.LOUD_THRESHOLD && reactionLean <= 0) {
-             reactionLean = 8.0; 
-             blinkState = 1; 
-        }
+        // 🆕 REMOVED FLINCH LOGIC HERE
+        // No more "reactionLean" calculation based on volume.
 
         if (isSpeaking) {
             let rawVolume = Math.max(0, average - 15) / 50; 
@@ -445,9 +361,7 @@ function animateMouthLive2D(model, analyser, dataArray, isSpeaking) {
         }
     }
 
-    if (!isSpeaking && targetOpenness < 0.2) {
-        targetForm += randomMouthOffset;
-    }
+    if (!isSpeaking && targetOpenness < 0.2) { targetForm += randomMouthOffset; }
 
     let speed = (targetOpenness > currentMouth) ? 0.6 : 0.2; 
     currentMouth += (targetOpenness - currentMouth) * speed;
@@ -469,9 +383,7 @@ function setExpression(model, expName, isInternal = false) {
     const manager = model.internalModel.motionManager.expressionManager;
     if (!manager) return;
     
-    if (!isInternal && expName !== 'Reset') {
-        resetIdleTimer(); 
-    }
+    if (!isInternal && expName !== 'Reset') { resetIdleTimer(); }
     if (manager.definitions && manager.definitions[expName]) {
         const def = manager.definitions[expName];
         def.Parameters = def.Parameters.filter(p => p.Id !== 'ParamMouthOpenY');
