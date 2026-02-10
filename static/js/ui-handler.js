@@ -83,3 +83,88 @@ if(micBtn) {
         if(!window.conversationMode && window.stopRecording) window.stopRecording(); 
     });
 }
+
+// --- SCREEN SHARING LOGIC ---
+let screenStream = null;
+let screenInterval = null;
+const SCREEN_UPDATE_RATE = 10000; // Check screen every 10 seconds
+
+async function toggleScreenShare() {
+    const btn = document.getElementById('screen-btn');
+    
+    if (!screenStream) {
+        // START SHARING
+        try {
+            screenStream = await navigator.mediaDevices.getDisplayMedia({ 
+                video: { cursor: "always" }, 
+                audio: false,
+            });
+            
+            // 🆕 TELL SERVER TO STOP RANDOM TALKING
+            socket.emit('start_screen_share');
+
+            btn.innerText = "🖥️ Stop Watching";
+            btn.classList.add('active');
+            btn.style.background = "#00d2ff";
+            btn.style.color = "#000";
+
+            // Create hidden video element to read frames
+            const video = document.createElement('video');
+            video.srcObject = screenStream;
+            video.play();
+
+            // Loop to send frames
+            screenInterval = setInterval(() => {
+                // Only send if she isn't currently talking
+                if (!window.isSpeaking && !window.isServerGenerating) {
+                    captureAndSend(video);
+                }
+            }, SCREEN_UPDATE_RATE);
+
+            // Handle user clicking "Stop Sharing" on browser UI
+            screenStream.getVideoTracks()[0].onended = () => {
+                stopScreenShare();
+            };
+
+        } catch (err) {
+            console.error("Error starting screen share:", err);
+        }
+    } else {
+        // STOP SHARING
+        stopScreenShare();
+    }
+}
+
+function captureAndSend(video) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; // Low res for speed
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    const imageData = canvas.toDataURL('image/jpeg', 0.5);
+    socket.emit('screen_update', { image: imageData });
+    console.log("📤 Sent Screen Snapshot");
+}
+
+function stopScreenShare() {
+    // 🆕 TELL SERVER IT CAN TALK AGAIN
+    socket.emit('stop_screen_share');
+
+    const btn = document.getElementById('screen-btn');
+    if (screenStream) {
+        screenStream.getTracks().forEach(track => track.stop());
+        screenStream = null;
+    }
+    if (screenInterval) {
+        clearInterval(screenInterval);
+        screenInterval = null;
+    }
+    
+    if(btn) {
+        btn.innerText = "🖥️ Watch Screen";
+        btn.classList.remove('active');
+        btn.style.background = "";
+        btn.style.color = "";
+    }
+}

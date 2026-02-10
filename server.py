@@ -12,6 +12,7 @@ import whisper
 import sys
 import tempfile
 import threading 
+import vision_server
 
 # --- IMPORT CONFIGURATION ---
 import config
@@ -32,7 +33,8 @@ audio_folder = os.path.join("static", "audio")
 if not os.path.exists(audio_folder): os.makedirs(audio_folder)
 
 # --- GLOBAL STATE ---
-IS_QUIET_MODE = False  
+IS_QUIET_MODE = False
+IS_SCREEN_SHARING = False  
 last_request_time = 0   # Handles user interruptions
 last_interaction_time = time.time() # Tracks silence duration
 is_speaking = False     # Prevents her from interrupting herself
@@ -73,7 +75,7 @@ def autonomy_loop():
         
         # 1. STOP CONDITIONS
         # If disabled, quiet mode, or she's already talking -> Do nothing
-        if not autonomy_enabled or is_speaking or IS_QUIET_MODE:
+        if not autonomy_enabled or is_speaking or IS_QUIET_MODE or IS_SCREEN_SHARING:
             # Push the trigger time forward so she doesn't speak *immediately* after finishing
             if is_speaking:
                 next_trigger_time = current_time + random.randint(30, 90)
@@ -309,6 +311,50 @@ def handle_delete_audio(data):
     if filename:
         try: os.remove(os.path.join(audio_folder, os.path.basename(filename)))
         except: pass
+
+# ==========================================
+# 🖥️ SCREEN VISION HANDLER
+# ==========================================
+@socketio.on('screen_update')
+def handle_screen_update(data):
+    global last_request_time, is_speaking
+    
+    # 1. Don't interrupt if she's already talking or user is talking
+    if is_speaking or (time.time() - last_request_time < 5):
+        return
+
+    image_data = data.get('image')
+    if not image_data: return
+
+    # Update timestamps to lock resources
+    my_start_time = time.time()
+    last_request_time = my_start_time
+    
+    # Run vision analysis in background
+    socketio.start_background_task(process_vision, image_data, my_start_time)
+
+def process_vision(image_data, my_start_time):
+    global is_speaking, last_request_time, last_interaction_time
+    
+    # Call the separate vision handler
+    reaction = vision_server.analyze_screen(image_data, brain)
+    
+    if reaction:
+        # Send reaction to the standard processing function 
+        # (This reuses your existing TTS and emotion logic)
+        process_response(reaction, my_start_time)
+
+@socketio.on('start_screen_share')
+def handle_screen_start():
+    global IS_SCREEN_SHARING
+    IS_SCREEN_SHARING = True
+    print("🖥️ Screen Sharing Started (Autonomy Disabled)")
+
+@socketio.on('stop_screen_share')
+def handle_screen_stop():
+    global IS_SCREEN_SHARING
+    IS_SCREEN_SHARING = False
+    print("🖥️ Screen Sharing Stopped (Autonomy Re-enabled)")
 
 if __name__ == '__main__':
     # Start the Autonomy Loop in the background
