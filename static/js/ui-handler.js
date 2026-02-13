@@ -87,7 +87,7 @@ if(micBtn) {
 // --- SCREEN SHARING LOGIC ---
 let screenStream = null;
 let screenInterval = null;
-const SCREEN_UPDATE_RATE = 10000; // Check screen every 10 seconds
+const SCREEN_UPDATE_RATE = 30000; // Check screen every 10 seconds
 
 async function toggleScreenShare() {
     const btn = document.getElementById('screen-btn');
@@ -113,6 +113,8 @@ async function toggleScreenShare() {
             video.srcObject = screenStream;
             video.play();
 
+            setTimeout(() => captureAndSend(video), 2000);
+
             // Loop to send frames
             screenInterval = setInterval(() => {
                 // Only send if she isn't currently talking
@@ -137,14 +139,20 @@ async function toggleScreenShare() {
 
 function captureAndSend(video) {
     const canvas = document.createElement('canvas');
-    canvas.width = 640; // Low res for speed
-    canvas.height = 360;
+    
+    // UPDATED: Increased resolution to 1280x720 (720p)
+    // This allows LLaVA to read text and code much better than 360p.
+    canvas.width = 1280; 
+    canvas.height = 720;
+    
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    const imageData = canvas.toDataURL('image/jpeg', 0.5);
+    // UPDATED: Quality 0.8 (Higher quality for text readability)
+    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    
     socket.emit('screen_update', { image: imageData });
-    console.log("📤 Sent Screen Snapshot");
+    console.log("📤 Sent High-Res Screen Snapshot");
 }
 
 function stopScreenShare() {

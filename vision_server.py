@@ -1,36 +1,31 @@
 """
 FILE: vision_server.py
-DESCRIPTION: Handles screen analysis using LLaVA.
+DESCRIPTION: Handles screen analysis using LLaVA with deeper context.
 """
 import ollama
-import time
-import base64
-import re
-from io import BytesIO
-from PIL import Image
 
 def analyze_screen(image_data, brain_instance):
     """
-    Takes base64 image data, sends it to LLaVA, and returns a short reaction.
+    Takes base64 image data, sends it to LLaVA for a DEEP analysis,
+    then returns that analysis so the main Brain can digest it.
     """
-    print("👀 Astra is looking at the screen...")
+    print("👀 Astra is analyzing the screen in depth...")
 
-    # Clean base64 string
     if "," in image_data:
         image_data = image_data.split(",")[1]
 
-    # Prompt for reactive, continuous commentary
+    # NEW PROMPT: Ask for details, text, and context (not just a reaction)
     prompt = (
-        "You are watching the user's screen. "
-        "Briefly comment on what is happening or what changed. "
-        "Be reactive, short, and conversational (1 sentence max). "
-        "Do not describe the static layout, focus on the activity."
+        "Analyze this screen screenshot in detail. "
+        "1. Identify the main active application. "
+        "2. Read any prominent text or headlines. "
+        "3. Guess what the user is trying to accomplish (coding, reading, gaming, etc). "
+        "Provide a factual, detailed summary of the screen state."
     )
 
     try:
-        # Use LLaVA specifically for vision
         response = ollama.chat(
-            model="llava",  # Vision model
+            model="llava", 
             messages=[{
                 'role': 'user',
                 'content': prompt,
@@ -38,12 +33,8 @@ def analyze_screen(image_data, brain_instance):
             }]
         )
         
-        reaction = response['message']['content']
-        
-        # Add to main brain memory so she remembers what she saw
-        brain_instance.messages.append({"role": "assistant", "content": f"[Vision Reaction] {reaction}"})
-        
-        return reaction
+        description = response['message']['content']
+        return description
 
     except Exception as e:
         print(f"Vision Error: {e}")

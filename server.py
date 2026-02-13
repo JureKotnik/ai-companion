@@ -335,7 +335,8 @@ def handle_screen_update(data):
     global last_request_time, is_speaking
     
     # 1. Don't interrupt if she's already talking or user is talking
-    if is_speaking or (time.time() - last_request_time < 5):
+    # Increased cooldown to ensure we don't overlap
+    if is_speaking or (time.time() - last_request_time < 10):
         return
 
     image_data = data.get('image')
@@ -351,13 +352,33 @@ def handle_screen_update(data):
 def process_vision(image_data, my_start_time):
     global is_speaking, last_request_time, last_interaction_time
     
-    # Call the separate vision handler
-    reaction = vision_server.analyze_screen(image_data, brain)
+    # 1. GET DEEP ANALYSIS FROM VISION SERVER
+    # This returns a paragraph of details (text, apps, context)
+    screen_description = vision_server.analyze_screen(image_data, brain)
     
-    if reaction:
-        # Send reaction to the standard processing function 
-        # (This reuses your existing TTS and emotion logic)
-        process_response(reaction, my_start_time)
+    if screen_description:
+        print(f"👀 Vision Context: {screen_description[:100]}...") # Log first 100 chars
+        
+        # 2. INJECT INTO BRAIN MEMORY (Silent Context)
+        # We tell the brain "This is what is on the screen" so it knows for future questions.
+        # We do NOT speak this raw description.
+        brain.messages.append({
+            "role": "system", 
+            "content": f"[CURRENT SCREEN CONTEXT]: {screen_description}"
+        })
+        
+        # 3. GENERATE A CONVERSATIONAL REACTION
+        # We ask the brain to make a comment *based* on that deep understanding.
+        reaction_prompt = (
+            "You just saw the user's screen. The context is added to your memory. "
+            "Make a brief, insightful, or helpful comment about what they are working on or looking at. "
+            "Do not list items. Be natural."
+        )
+        
+        # Reuse the standard response processor to generate speech
+        process_response(reaction_prompt, my_start_time)
+
+# ... (Keep the rest of the file same) ...
 
 @socketio.on('start_screen_share')
 def handle_screen_start():
