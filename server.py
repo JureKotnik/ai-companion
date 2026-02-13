@@ -74,7 +74,7 @@ def autonomy_loop():
         current_time = time.time()
         
         # 1. STOP CONDITIONS
-        # If disabled, quiet mode, or she's already talking -> Do nothing
+        # CRITICAL: IS_SCREEN_SHARING prevents random talking while you are sharing screen.
         if not autonomy_enabled or is_speaking or IS_QUIET_MODE or IS_SCREEN_SHARING:
             # Push the trigger time forward so she doesn't speak *immediately* after finishing
             if is_speaking:
@@ -112,25 +112,40 @@ def trigger_random_thought(ramble=False):
     
     if ramble:
         print("💡 She decided to RAMBLE!")
+        # UPDATED LIST: Car themes, engines, mushrooms, atmospheric topics
         ramble_topics = [
-            "the nature of consciousness and being an AI",
-            "a weird dream you 'had' (hallucinate one)",
-            "why humans are so obsessed with time",
-            "a detailed story about a fictional place",
-            "your favorite colors and why they make you feel things",
-            "the concept of infinite space"
+            "the personality of engines and why V8s sound angry",
+            "if I were a car, exactly what specific model I would be",
+            "the romantic human concept of a late-night road trip",
+            "why humans collect physical objects they don't need",
+            "a detailed description of a weather pattern that doesn't exist",
+            "the 'sound' of the internet versus real silence",
+            "how mushrooms are basically the biological internet",
+            "analyzing the structural integrity of a perfect sandwich",
+            "if my mind were a physical room, how I would decorate it",
+            "why humans find comfort in rain hitting a window"
         ]
         topic = random.choice(ramble_topics)
         # We explicitly tell the Brain to go long
         prompt = f"(The room is silent. You feel like rambling. Start talking about {topic}. Go on a tangent. Connect it to random things. Speak for a while, at least 3-4 sentences. Be stream-of-consciousness.)"
     else:
         print("💡 She decided to make a short comment.")
+        # UPDATED LIST: Car sounds, sensory details, and random facts
         flavors = [
             "Share a random fun fact.",
             "Ask the user what they are thinking about.",
             "Hum or make a sound effect (write *humming*).",
             "Comment on how peaceful it is.",
-            "Remember something we talked about earlier."
+            "Remember something we talked about earlier.",
+            "Make a car engine sound (write *vroom* or *soft idling*).",
+            "Ask if we can listen to some music.",
+            "Comment on the 'scenery' passing by.",
+            "Pretend to adjust a radio dial (write *static noise*).",
+            "Share a quick, random compliment.",
+            "Express a sudden burst of excitement.",
+            "Ask a 'would you rather' question.",
+            "Mention a hypothetical smell (like rain or gasoline).",
+            "Suggest a spontaneous detour or idea."
         ]
         flavor = random.choice(flavors)
         prompt = f"(The room is silent. {flavor} Keep it brief and conversational.)"
