@@ -2,12 +2,32 @@
 
 function setMode(mode) {
     if(typeof ensureAudioContext === 'function') ensureAudioContext();
-    
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    document.querySelector(`.mode-btn[onclick="setMode('${mode}')"]`).classList.add('active');
-    
+
+    document.querySelectorAll('.mode-btn[onclick*="setMode"]').forEach(b => b.classList.remove('active'));
+    const target = document.querySelector(`.mode-btn[onclick="setMode('${mode}')"]`);
+    if(target) target.classList.add('active');  
     document.getElementById('text-area').className = mode === 'text' ? 'visible' : '';
     document.getElementById('voice-area').className = mode === 'voice' ? 'visible' : '';
+}
+
+function toggleAutonomy() {
+    const btn = document.getElementById('autonomy-btn');
+    // Check if currently active
+    const isActive = btn.classList.contains('active');
+    
+    if (!isActive) {
+        // Turn ON
+        btn.classList.add('active');
+        btn.style.background = "#ff00ff";
+        btn.style.color = "#000"; // Black text on pink background
+        socket.emit('toggle_autonomy', { enabled: true });
+    } else {
+        // Turn OFF
+        btn.classList.remove('active');
+        btn.style.background = "";
+        btn.style.color = "#ff00ff"; // Pink text, transparent background
+        socket.emit('toggle_autonomy', { enabled: false });
+    }
 }
 
 function sendText() {

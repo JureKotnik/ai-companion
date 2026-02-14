@@ -38,7 +38,7 @@ IS_SCREEN_SHARING = False
 last_request_time = 0   # Handles user interruptions
 last_interaction_time = time.time() # Tracks silence duration
 is_speaking = False     # Prevents her from interrupting herself
-autonomy_enabled = True # Master switch for spontaneous talking
+autonomy_enabled = False # Master switch for spontaneous talking
 
 # --- LOAD MODELS ---
 try: kokoro = Kokoro("kokoro-v0_19.onnx", "voices.bin"); print("✔ Kokoro Loaded.")
@@ -391,6 +391,14 @@ def handle_screen_stop():
     global IS_SCREEN_SHARING
     IS_SCREEN_SHARING = False
     print("🖥️ Screen Sharing Stopped (Autonomy Re-enabled)")
+
+@socketio.on('toggle_autonomy')
+def handle_autonomy_toggle(data):
+    global autonomy_enabled
+    state = data.get('enabled', False)
+    autonomy_enabled = state
+    status = "ON" if autonomy_enabled else "OFF"
+    print(f"🧠 Spontaneity Mode: {status}")
 
 if __name__ == '__main__':
     # Start the Autonomy Loop in the background
