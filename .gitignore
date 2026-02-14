@@ -3,6 +3,7 @@ __pycache__/
 .env
 *.pyc
 memory.json
+long_term_memory.json
 config.py
 voices.bin
 kokoro-v0_19.onnx

@@ -244,7 +244,14 @@ def process_response(user_text, my_start_time):
                         for key, val in EMOTION_MAP.items():
                             if key in sentence.lower(): current_emotion = val; break 
                         
-                        audio_text = re.sub(r'[\*\[].*?[\*\]]', '', sentence)
+                        # 1. FIRST: Remove the [[System Tags]] completely
+                        # This prevents "REMEMBER" or "OPEN" from being spoken
+                        audio_text = re.sub(r'\[\[.*?\]\]', '', sentence)
+                        
+                        # 2. SECOND: Remove *Actions* and [Emotions]
+                        audio_text = re.sub(r'[\*\[].*?[\*\]]', '', audio_text)
+                        
+                        # 3. Clean up punctuation and weird symbols
                         audio_text = re.sub(r'[^\w\s,.!?;:\'\-]', '', audio_text).strip()
                         if not any(c.isalnum() for c in audio_text): continue
                         audio_text = clean_for_speech(audio_text)
