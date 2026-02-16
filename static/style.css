@@ -8,10 +8,8 @@ html, body {
     height: 100vh !important;
     overflow: hidden !important; 
     
-    /* FORCE DARK VOID BACKGROUND */
     background: radial-gradient(circle at center, #2b3242 0%, #0f1016 100%) !important;
-    background-color: #0f1016 !important; /* Fallback color */
-    
+    background-color: #0f1016 !important;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
     color: white;
 }
