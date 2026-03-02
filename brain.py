@@ -10,15 +10,12 @@ import re
 from skills import extract_and_read_file, open_application
 from config import TEST_MODE
 
-# --- 1. PERSONALITY & INSTRUCTIONS ---
 PERSONALITY_INSTRUCTIONS = """
 ROLE:
 1. You are a close friend. Be detailed, talkative, and affectionate.
 2. NEURAL MEMORY: You have a "Long Term Memory" file. You MUST use it.
 """
 
-# --- 2. THE CRITICAL MEMORY INSTRUCTION ---
-# We put this in a separate block to inject it forcefully
 MEMORY_TOOL_INSTRUCTIONS = """
 *** IMPORTANT: MEMORY SAVING TOOL ***
 When the user tells you a NEW fact about themselves (name, hobby, age, preference), 
@@ -42,7 +39,6 @@ try:
 except ImportError:
     SYSTEM_PROMPT = "You are a professional AI companion."
 
-# Combine prompts - Memory instructions come LAST to be most recent in context
 BASE_SYSTEM_PROMPT = f"{SYSTEM_PROMPT}\n{PERSONALITY_INSTRUCTIONS}\n{EMOTION_INSTRUCTIONS}\n{MEMORY_TOOL_INSTRUCTIONS}"
 
 class CompanionBrain:
@@ -57,7 +53,6 @@ class CompanionBrain:
         self.messages = self._load_short_term_memory()
         self._update_system_prompt()
 
-    # --- LONG TERM MEMORY ---
     def _load_ltm(self):
         if os.path.exists(self.ltm_file):
             try:
@@ -82,7 +77,6 @@ class CompanionBrain:
 
     def _add_long_term_memory(self, fact):
         cleaned_fact = fact.strip()
-        # Avoid duplicates
         if cleaned_fact not in self.long_term_facts:
             self.long_term_facts.append(cleaned_fact)
             self._save_ltm()
@@ -98,13 +92,11 @@ class CompanionBrain:
         
         final_prompt = BASE_SYSTEM_PROMPT + "\n" + facts_text
         
-        # Ensure system prompt is always updated/inserted at index 0
         if not self.messages or self.messages[0]['role'] != 'system':
             self.messages.insert(0, {"role": "system", "content": final_prompt})
         else:
             self.messages[0]['content'] = final_prompt
 
-    # --- SHORT TERM MEMORY ---
     def _load_short_term_memory(self):
         if os.path.exists(self.memory_file):
             try: 
@@ -121,7 +113,6 @@ class CompanionBrain:
         if len(self.messages) < (self.KEEP_RECENT + 5): return
         print("🧹 Condensing Short-Term Memory...")
         
-        # Snapshot recent history
         to_summarize = self.messages[1 : -self.KEEP_RECENT]
         prompt = f"Summarize this conversation briefly, keeping key details: {json.dumps(to_summarize)}"
         
@@ -129,15 +120,14 @@ class CompanionBrain:
             resp = ollama.chat(model=self.model_name, messages=[{'role': 'user', 'content': prompt}])
             summary = resp['message']['content']
             
-            new_mem = [self.messages[0]] # System Prompt
+            new_mem = [self.messages[0]]
             new_mem.append({"role": "system", "content": f"[Previous Chat Context]: {summary}"})
-            new_mem.extend(self.messages[-self.KEEP_RECENT:]) # Recent Messages
+            new_mem.extend(self.messages[-self.KEEP_RECENT:])
             
             self.messages = new_mem
             self._save_short_term_memory()
         except: pass
 
-    # --- MAIN LOOP ---
     def stream_response(self, user_input):
         file_ctx = extract_and_read_file(user_input)
         final_input = user_input + (f"\n[FILE CONTENT]: {file_ctx}" if file_ctx else "")
@@ -156,11 +146,7 @@ class CompanionBrain:
 
             self.messages.append({"role": "assistant", "content": full_response})
             self._save_short_term_memory()
-
-            # --- PROCESS TOOLS (Hidden from User Output) ---
             
-            # 1. Flexible Regex for REMEMBER (Handles spaces like [[ REMEMBER: ... ]])
-            # We look for the tag case-insensitive
             ltm_matches = re.findall(r'\[\[\s*REMEMBER\s*:\s*(.*?)\s*\]\]', full_response, re.IGNORECASE)
             
             if ltm_matches:
@@ -168,7 +154,6 @@ class CompanionBrain:
                 for fact in ltm_matches:
                     self._add_long_term_memory(fact)
 
-            # 2. App Opener
             app_match = re.search(r'\[\[OPEN:\s*(.*?)\]\]', full_response, re.IGNORECASE)
             if app_match:
                 yield f"\n[Opening {app_match.group(1)}]"

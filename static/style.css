@@ -1,6 +1,5 @@
 /* FILE: static/style.css */
 
-/* --- 1. MAIN BACKGROUND (FORCED) --- */
 html, body { 
     margin: 0 !important; 
     padding: 0 !important;
@@ -23,7 +22,6 @@ html, body {
     z-index: 1;
 }
 
-/* --- 2. GLASS NAVBAR --- */
 .navbar {
     position: fixed;
     top: 0; left: 0;

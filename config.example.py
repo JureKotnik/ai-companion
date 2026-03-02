@@ -67,7 +67,6 @@ BREATH_SOUNDS = ["Haa...", "Ah...", "Phew...", "Mmm...", "So...", "And..."]
 FILLERS = ["Hmm?", "Let's see...", "Okay...", "Well?", "So?", "You know?", "Right?"]
 
 VOICE_STYLES = {
-    # HIGH ENERGY (Loud & Fast)
     "Happy":       ("af", 1.2, 1.1),    # Fast + Slightly Louder
     "Excited":     ("af", 1.3, 1.2),    # Very Fast + Loud
     "Laughing":    ("af", 1.25, 1.1),
@@ -75,7 +74,6 @@ VOICE_STYLES = {
     "Annoyed":     ("af", 1.1, 1.1),    # Sharp + Loud
     "Surprised":   ("af", 1.25, 1.2),   # Fast + Loud
 
-    # LOW ENERGY (Slow & Quiet)
     "Sad":         ("af", 0.75, 0.8),   # Very Slow + Quiet
     "Love":        ("af", 0.85, 0.9),   # Slow + Soft
     "Worry":       ("af", 0.8, 0.85),   # Slow + Quiet
@@ -87,7 +85,7 @@ VOICE_STYLES = {
 WAKE_WORD = "astra"
 ALWAYS_LISTEN = True
 
-TEST_MODE = True  # Set to False when deploying to production
+TEST_MODE = True 
 
 QUIET_TRIGGERS = ["quiet mode", "whisper mode", "shh", "be quiet", "late night mode", "keep it down"]
 NORMAL_TRIGGERS = ["normal mode", "speak up", "loud mode", "stop whispering", "daytime mode"]
