@@ -14,7 +14,6 @@ def analyze_screen(image_data, brain_instance):
     if "," in image_data:
         image_data = image_data.split(",")[1]
 
-    # NEW PROMPT: Ask for details, text, and context (not just a reaction)
     prompt = (
         "Analyze this screen screenshot in detail. "
         "1. Identify the main active application. "
